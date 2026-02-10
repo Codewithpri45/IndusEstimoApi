@@ -1,0 +1,91 @@
+{
+  "Prefix": "PREQ",
+  "TransactionID": 14,
+  "RecordMain": [
+    {
+      "VoucherID": -9,
+      "VoucherNo": "PREQ-0014",
+      "LedgerID": 1,
+      "VoucherDate": "2025-12-24T00:00:00",
+      "TotalQuantity": 150.50,
+      "Narration": "Updated Purchase Requisition for Raw Materials - December 2025",
+      "VoucherRemark": "Urgent requirement for production"
+    }
+  ],
+  "RecordDetail": [
+    {
+      "ItemID": 101,
+      "ItemName": "Raw Material A",
+      "TransID": 1,
+      "ItemGroupID": 5,
+      "RequiredNoOfPacks": 10,
+      "QuantityPerPack": 10,
+      "RequiredQuantity": 100,
+      "PurchaseQty": 100,
+      "StockUnit": "KG",
+      "OrderUnit": "KG",
+      "ItemNarration": "High quality raw material required",
+      "ExpectedDeliveryDate": "2025-12-30T00:00:00",
+      "RefJobBookingJobCardContentsID": 0,
+      "RefJobCardContentNo": "",
+      "CurrentStockInStockUnit": 50.5,
+      "CurrentStockInPurchaseUnit": 50.5,
+      "PhysicalStock": 50.5,
+      "PhysicalStockInPurchaseUnit": 50.5,
+      "IsAuditApproved": 0,
+      "AuditApprovalRequired": 0
+    },
+    {
+      "ItemID": 102,
+      "ItemName": "Raw Material B",
+      "TransID": 2,
+      "ItemGroupID": 5,
+      "RequiredNoOfPacks": 5,
+      "QuantityPerPack": 10,
+      "RequiredQuantity": 50.5,
+      "PurchaseQty": 50.5,
+      "StockUnit": "KG",
+      "OrderUnit": "KG",
+      "ItemNarration": "Premium grade material",
+      "ExpectedDeliveryDate": "2025-12-31T00:00:00",
+      "RefJobBookingJobCardContentsID": 0,
+      "RefJobCardContentNo": "",
+      "CurrentStockInStockUnit": 25.75,
+      "CurrentStockInPurchaseUnit": 25.75,
+      "PhysicalStock": 25.75,
+      "PhysicalStockInPurchaseUnit": 25.75,
+      "IsAuditApproved": 0,
+      "AuditApprovalRequired": 0
+    }
+  ],
+  "UpdateIndentDetail": [
+    {
+      "TransactionID": 10,
+      "ItemID": 101,
+      "JobBookingJobCardContentsID": 0,
+      "RequisitionItemID": 101
+    },
+    {
+      "TransactionID": 11,
+      "ItemID": 102,
+      "JobBookingJobCardContentsID": 0,
+      "RequisitionItemID": 102
+    }
+  ],
+  "UserApprovalProcess": [
+    {
+      "ItemID": 101,
+      "ItemName": "Raw Material A",
+      "PurchaseQty": 100
+    },
+    {
+      "ItemID": 102,
+      "ItemName": "Raw Material B",
+      "PurchaseQty": 50.5
+    }
+  ],
+  "ObjvalidateLoginUser": {
+    "UserName": "admin",
+    "Password": "your_password_here"
+  }
+}

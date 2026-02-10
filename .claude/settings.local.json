@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s \"d:\\Indus Monarch\\Indas-Web-Api-New\")",
+      "Bash(tree:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet --list-sdks:*)",
+      "Bash(curl:*)",
+      "Bash(winget search:*)",
+      "Bash(winget install:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dir:*)",
+      "Bash(move Tenant MultiTenancy)",
+      "Bash(sqlcmd:*)",
+      "Bash(dotnet run:*)",
+      "Bash(timeout /t 5)",
+      "Bash(ping:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell Stop-Process -Id 37776 -Force)",
+      "Bash(powershell Stop-Process -Name \"IndusMonarch.Api\" -Force)",
+      "Bash(powershell Stop-Process -Id 37900 -Force)",
+      "Bash(powershell Stop-Process -Name \"IndasEstimo.Api\" -Force)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
