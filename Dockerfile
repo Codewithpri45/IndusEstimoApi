@@ -9,6 +9,7 @@ COPY src/IndasEstimo.Application/*.csproj ./IndasEstimo.Application/
 COPY src/IndasEstimo.Domain/*.csproj ./IndasEstimo.Domain/
 COPY src/IndasEstimo.Infrastructure/*.csproj ./IndasEstimo.Infrastructure/
 COPY src/IndasEstimo.Shared/*.csproj ./IndasEstimo.Shared/
+COPY src/IndasEstimo.SetupUtility/*.csproj ./IndasEstimo.SetupUtility/
 
 # Restore dependencies
 RUN dotnet restore
