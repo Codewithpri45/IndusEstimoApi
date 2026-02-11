@@ -1,5 +1,18 @@
 using IndasEstimo.Api.Middleware;
 using IndasEstimo.Application.Interfaces.Repositories;
+using IndasEstimo.Application.Interfaces.Repositories.ToolInventory;
+using IndasEstimo.Application.Interfaces.Services.ToolInventory;
+using IndasEstimo.Infrastructure.Repositories.ToolInventory;
+using IndasEstimo.Infrastructure.Services.ToolInventory;
+using IndasEstimo.Application.Interfaces.Repositories.Estimation;
+using IndasEstimo.Application.Interfaces.Repositories.Menu;
+using IndasEstimo.Application.Interfaces.Services.Estimation;
+using IndasEstimo.Application.Interfaces.Services.Menu;
+using IndasEstimo.Infrastructure.Repositories.Estimation;
+using IndasEstimo.Infrastructure.Repositories.Menu;
+using IndasEstimo.Infrastructure.Services.Estimation;
+using IndasEstimo.Infrastructure.Services.Menu;
+
 using IndasEstimo.Application.Interfaces.Repositories.Inventory;
 using IndasEstimo.Application.Interfaces.Services;
 using IndasEstimo.Application.Interfaces.Services.Inventory;
@@ -59,14 +72,56 @@ builder.Services.AddScoped<IItemMasterService, ItemMasterService>();
 builder.Services.AddScoped<ILedgerMasterService, LedgerMasterService>();
 builder.Services.AddScoped<IWarehouseMasterService, WarehouseMasterService>();
 
+
+// ===== Tool Inventory Repositories =====
+builder.Services.AddScoped<IToolRequisitionRepository, ToolRequisitionRepository>();
+builder.Services.AddScoped<IToolPurchaseOrderRepository, ToolPurchaseOrderRepository>();
+builder.Services.AddScoped<IToolReceiptNoteRepository, ToolReceiptNoteRepository>();
+builder.Services.AddScoped<IToolReturnToStockRepository, ToolReturnToStockRepository>();
+builder.Services.AddScoped<IToolIssueRepository, ToolIssueRepository>();
+
+
+
 // ===== Application Services =====
 builder.Services.AddScoped<IMasterAuthService, MasterAuthService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IDbOperationsService, DbOperationsService>();
+
 // Add this line with your other services
 builder.Services.AddScoped<IPurchaseRequisitionService, PurchaseRequisitionService>();
+
+// ===== Estimation Module Services =====
+builder.Services.AddScoped<IMaterialSelectionRepository, MaterialSelectionRepository>();
+builder.Services.AddScoped<IMaterialSelectionService, MaterialSelectionService>();
+builder.Services.AddScoped<IMasterDataRepository, MasterDataRepository>();
+builder.Services.AddScoped<IMasterDataService, MasterDataService>();
+builder.Services.AddScoped<IMachineProcessRepository, MachineProcessRepository>();
+builder.Services.AddScoped<IMachineProcessService, MachineProcessService>();
+
+builder.Services.AddScoped<IToolMaterialRepository, ToolMaterialRepository>();
+builder.Services.AddScoped<IToolMaterialService, ToolMaterialService>();
+
+builder.Services.AddScoped<IPlanningCalculationRepository, PlanningCalculationRepository>();
+builder.Services.AddScoped<IPlanningCalculationService, PlanningCalculationService>();
+
+builder.Services.AddScoped<IQuotationRepository, QuotationRepository>();
+builder.Services.AddScoped<IQuotationService, QuotationService>();
+
+// ===== Menu Module Services =====
+builder.Services.AddScoped<IMenuRepository, MenuRepository>();
+builder.Services.AddScoped<IMenuService, MenuService>();
+
+
+
+// ===== Tool Inventory Services =====
+
+builder.Services.AddScoped<IToolRequisitionService, ToolRequisitionService>();
+builder.Services.AddScoped<IToolPurchaseOrderService, ToolPurchaseOrderService>();
+builder.Services.AddScoped<IToolReceiptNoteService, ToolReceiptNoteService>();
+builder.Services.AddScoped<IToolReturnToStockService, ToolReturnToStockService>();
+builder.Services.AddScoped<IToolIssueService, ToolIssueService>();
 
 // ===== Security Services =====
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
