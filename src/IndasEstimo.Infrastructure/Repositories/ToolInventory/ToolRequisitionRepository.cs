@@ -367,8 +367,9 @@ public class ToolRequisitionRepository : IToolRequisitionRepository
         var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
 
         // Matches FillGrid requisition mode (VoucherID = -115)
+        // DISTINCT added to prevent duplicate rows when multiple detail records exist
         var sql = @"
-            SELECT
+            SELECT DISTINCT
                 ISNULL(STM.TransactionID, 0) AS TransactionID,
                 ISNULL(STM.VoucherID, 0) AS VoucherID,
                 ISNULL(STM.MaxVoucherNo, 0) AS MaxVoucherNo,
