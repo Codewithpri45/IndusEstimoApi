@@ -47,18 +47,18 @@ public class MachineProcessRepository : IMachineProcessRepository
                 MachineID,
                 MachineName,
                 MachineType,
-                MachineColors,
-                MaxSheetL,
-                MaxSheetW,
-                MinSheetL,
-                MinSheetW,
-                ISNULL(PerHourRate, 0) AS PerHourRate,
-                PaperGroup
+                ISNULL(Colors, 0) AS MachineColors,
+                ISNULL(MaxLength, 0) AS MaxSheetL,
+                CASE WHEN ISNULL(MaxRollWidth, 0) > 0 THEN MaxRollWidth ELSE ISNULL(MaxWidth, 0) END AS MaxSheetW,
+                ISNULL(MinLength, 0) AS MinSheetL,
+                CASE WHEN ISNULL(MinRollWidth, 0) > 0 THEN MinRollWidth ELSE ISNULL(MinWidth, 0) END AS MinSheetW,
+                ISNULL(PerHourCost, 0) AS PerHourRate,
+                '' AS PaperGroup
             FROM MachineMaster
             WHERE CompanyID = @CompanyID
               AND ISNULL(IsDeletedTransaction, 0) = 0
-              AND ISNULL(IsActive, 0) = 1
-              AND ContentDomainType = @ContentDomainType
+              AND CurrentStatus = 'ACTIVE'
+              AND MachineType = @ContentDomainType
             ORDER BY MachineName";
 
         var results = await connection.QueryAsync<MachineGridDto>(query, 
@@ -76,12 +76,12 @@ public class MachineProcessRepository : IMachineProcessRepository
                 MachineID,
                 MachineName,
                 MachineType,
-                ISNULL(MachineColors, 0) AS MachineColors,
-                ISNULL(IsActive, 0) AS IsActive
+                ISNULL(Colors, 0) AS MachineColors,
+                CASE WHEN CurrentStatus = 'ACTIVE' THEN 1 ELSE 0 END AS IsActive
             FROM MachineMaster
             WHERE CompanyID = @CompanyID
               AND ISNULL(IsDeletedTransaction, 0) = 0
-              AND ISNULL(IsActive, 0) = 1
+              AND CurrentStatus = 'ACTIVE'
             ORDER BY MachineName";
 
         var results = await connection.QueryAsync<MachineDto>(query, new { CompanyID = companyId });
@@ -108,8 +108,8 @@ public class MachineProcessRepository : IMachineProcessRepository
             INNER JOIN DepartmentMaster AS DM ON DM.DepartmentID = PM.DepartmentID
             WHERE PM.CompanyID = @CompanyID
               AND ISNULL(PM.IsDeletedTransaction, 0) = 0
-              AND ISNULL(PM.IsActive, 0) = 1
-              AND PM.ContentDomainType = @DomainType
+              AND ISNULL(PM.IsBlocked, 0) = 0
+              AND PM.ProcessModuleType = @DomainType
             ORDER BY DM.SequenceNo, PM.ProcessName";
 
         var results = await connection.QueryAsync<OperationDto>(query, 
@@ -166,6 +166,64 @@ public class MachineProcessRepository : IMachineProcessRepository
             ORDER BY IM.ItemName";
 
         var results = await connection.QueryAsync<MachineItemDto>(query, 
+            new { MachineID = machineId, CompanyID = companyId });
+        return results.ToList();
+    }
+    
+    // Core Flexo Dependency: Fetch Tools (Cylinders) assigned to a Machine
+    public async Task<List<DieToolDto>> GetMachineToolsAsync(long machineId)
+    {
+        using var connection = GetConnection();
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
+
+        string query = @"
+            SELECT 
+                TM.ToolID,
+                TM.ToolCode,
+                TM.ToolName,
+                TM.ToolType,
+                ISNULL(TM.SizeL, 0) AS SizeL,
+                ISNULL(TM.SizeW, 0) AS SizeW,
+                ISNULL(TM.SizeH, 0) AS SizeH,
+                ISNULL(TM.CircumferenceInch, 0) AS CircumferenceInch,
+                ISNULL(TM.CircumferenceMM, 0) AS CircumferenceMM,
+                ISNULL(TM.NoOfTeeth, 0) AS NoOfTeeth,
+                ISNULL(TM.ToolRate, 0) AS ToolRate
+            FROM MachineToolAllocationMaster AS MTA
+            INNER JOIN ToolMaster AS TM ON TM.ToolID = MTA.ToolID
+            WHERE MTA.MachineID = @MachineID
+              AND MTA.CompanyID = @CompanyID
+              AND ISNULL(MTA.IsDeletedTransaction, 0) = 0
+              AND ISNULL(TM.IsDeletedTransaction, 0) = 0
+            ORDER BY TM.ToolName";
+
+        var results = await connection.QueryAsync<DieToolDto>(query, 
+            new { MachineID = machineId, CompanyID = companyId });
+        return results.ToList();
+    }
+
+    public async Task<List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto>> GetMachineSlabsAsync(long machineId)
+    {
+        using var connection = GetConnection();
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
+
+        string query = @"
+            SELECT 
+                SlabID,
+                RunningMeterRangeFrom,
+                RunningMeterRangeTo,
+                Rate,
+                Wastage,
+                PlateCharges,
+                MinCharges,
+                PaperGroup
+            FROM MachineSlabMaster
+            WHERE MachineID = @MachineID
+              AND CompanyID = @CompanyID
+              AND ISNULL(IsDeletedTransaction, 0) = 0
+            ORDER BY RunningMeterRangeFrom";
+
+        var results = await connection.QueryAsync<IndasEstimo.Application.DTOs.Masters.MachineSlabDto>(query, 
             new { MachineID = machineId, CompanyID = companyId });
         return results.ToList();
     }

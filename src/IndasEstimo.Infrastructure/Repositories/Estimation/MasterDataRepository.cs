@@ -103,8 +103,7 @@ public class MasterDataRepository : IMasterDataRepository
         string query = @"
             SELECT ISNULL(NULLIF(REPLACE(LM.LedgerName, '""', ''), ''), '') AS LedgerName,
                    LM.LedgerID,
-                   ISNULL(LM.CreditDays, 0) AS CreditDays,
-                   ISNULL(LM.IsLead, 0) AS IsLead
+                   ISNULL(LM.CreditDays, 0) AS CreditDays
             FROM LedgerMaster AS LM
             INNER JOIN LedgerGroupMaster AS LGM ON LGM.LedgerGroupID = LM.LedgerGroupID
             WHERE LGM.LedgerGroupNameID = 24
@@ -254,11 +253,11 @@ public class MasterDataRepository : IMasterDataRepository
         string query = @"
             SELECT 
                 CategoryID,
-                DefaultPrint,
-                ISNULL(DefaultWastage, 0) AS DefaultWastage,
-                WastageType,
-                DefaultColors,
-                CategoryName
+                CategoryName,
+                '' AS DefaultPrint,
+                0.0 AS DefaultWastage,
+                '' AS WastageType,
+                0 AS DefaultColors
             FROM CategoryMaster
             WHERE CategoryID = @CategoryID
               AND CompanyID = @CompanyID

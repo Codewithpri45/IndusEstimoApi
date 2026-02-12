@@ -12,4 +12,6 @@ public interface IMachineProcessRepository
     Task<List<OperationDto>> GetDefaultOperationsAsync(string domainType);
     Task<List<OperationSlabDto>> GetOperationSlabsAsync(long processId);
     Task<List<MachineItemDto>> GetMachineItemsAsync(long machineId);
+    Task<List<DieToolDto>> GetMachineToolsAsync(long machineId);
+    Task<List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto>> GetMachineSlabsAsync(long machineId);
 }

@@ -27,9 +27,16 @@ using IndasEstimo.Infrastructure.Services;
 using IndasEstimo.Infrastructure.Services.Inventory;
 using IndasEstimo.Infrastructure.Services.Masters;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+    
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using IndasEstimo.Application.Interfaces.Repositories.Enquiry;
+using IndasEstimo.Application.Interfaces.Repositories.Masters;
+using IndasEstimo.Application.Interfaces.Services.Masters;
+using IndasEstimo.Infrastructure.Repositories.Enquiry;
+using IndasEstimo.Infrastructure.Services.Enquiry;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -111,6 +118,10 @@ builder.Services.AddScoped<IPlanningCalculationService, PlanningCalculationServi
 builder.Services.AddScoped<IQuotationRepository, QuotationRepository>();
 builder.Services.AddScoped<IQuotationService, QuotationService>();
 
+builder.Services.AddScoped<IFlexoCalculationService, FlexoCalculationService>();
+
+
+
 // ===== Menu Module Services =====
 builder.Services.AddScoped<IMenuRepository, MenuRepository>();
 builder.Services.AddScoped<IMenuService, MenuService>();
@@ -124,6 +135,20 @@ builder.Services.AddScoped<IToolPurchaseOrderService, ToolPurchaseOrderService>(
 builder.Services.AddScoped<IToolReceiptNoteService, ToolReceiptNoteService>();
 builder.Services.AddScoped<IToolReturnToStockService, ToolReturnToStockService>();
 builder.Services.AddScoped<IToolIssueService, ToolIssueService>();
+
+// ===== Enquiry Module Services =====
+builder.Services.AddScoped<IEnquiryRepository, EnquiryRepository>();
+builder.Services.AddScoped<IEnquiryService, EnquiryService>();
+
+
+// ===== Masters Module Services =====
+builder.Services.AddScoped<IMachineMasterRepository, MachineMasterRepository>();
+builder.Services.AddScoped<IMachineMasterService, MachineMasterService>();
+builder.Services.AddScoped<IProcessMasterRepository, ProcessMasterRepository>();
+builder.Services.AddScoped<IProcessMasterService, ProcessMasterService>();
+builder.Services.AddScoped<IProductHSNMasterRepository, ProductHSNMasterRepository>();
+builder.Services.AddScoped<IProductHSNMasterService, ProductHSNMasterService>();
+
 
 // ===== Security Services =====
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();

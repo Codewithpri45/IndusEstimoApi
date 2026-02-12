@@ -9,10 +9,10 @@ public class MachineGridDto
     public string MachineName { get; set; } = string.Empty;
     public string MachineType { get; set; } = string.Empty;
     public int MachineColors { get; set; }
-    public decimal MaxSheetL { get; set; }
-    public decimal MaxSheetW { get; set; }
-    public decimal MinSheetL { get; set; }
-    public decimal MinSheetW { get; set; }
+    public decimal? MaxSheetL { get; set; }
+    public decimal? MaxSheetW { get; set; }
+    public decimal? MinSheetL { get; set; }
+    public decimal? MinSheetW { get; set; }
     public decimal PerHourRate { get; set; }
     public string? PaperGroup { get; set; }
 }

@@ -19,6 +19,7 @@ public class FlexoPlanningController : ControllerBase
     private readonly IMachineProcessService _machineService;
     private readonly IToolMaterialService _toolService;
     private readonly IPlanningCalculationService _calculationService;
+    private readonly IFlexoCalculationService _flexoCalculationService;
     private readonly IQuotationService _quotationService;
     private readonly ILogger<FlexoPlanningController> _logger;
 
@@ -28,6 +29,7 @@ public class FlexoPlanningController : ControllerBase
         IMachineProcessService machineService,
         IToolMaterialService toolService,
         IPlanningCalculationService calculationService,
+        IFlexoCalculationService flexoCalculationService,
         IQuotationService quotationService,
         ILogger<FlexoPlanningController> logger)
     {
@@ -36,6 +38,7 @@ public class FlexoPlanningController : ControllerBase
         _machineService = machineService;
         _toolService = toolService;
         _calculationService = calculationService;
+        _flexoCalculationService = flexoCalculationService;
         _quotationService = quotationService;
         _logger = logger;
     }
@@ -549,6 +552,20 @@ public class FlexoPlanningController : ControllerBase
     #endregion
 
     #region Planning & Calculation APIs
+
+    /// <summary>
+    /// Calculate Flexo Plan (Core Calculation)
+    /// Replaces legacy Shirin Job Logic
+    /// </summary>
+    [HttpPost("calculate/flexo")]
+    [ProducesResponseType(typeof(List<FlexoPlanResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> CalculateFlexoPlan([FromBody] FlexoPlanCalculationRequest request)
+    {
+        var result = await _flexoCalculationService.CalculateFlexoPlanAsync(request);
+        if (!result.IsSuccess) return BadRequest(new { message = result.ErrorMessage });
+        return Ok(result.Data);
+    }
 
     /// <summary>
     /// Calculate operation cost based on process and quantity

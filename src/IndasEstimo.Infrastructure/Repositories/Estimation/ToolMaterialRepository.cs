@@ -75,7 +75,7 @@ public class ToolMaterialRepository : IToolMaterialRepository
         return results.ToList();
     }
 
-    public async Task<List<ReelDto>> GetReelsAsync(decimal reqDeckle, decimal widthPlus, decimal widthMinus)
+    public async Task<List<ReelDto>> GetReelsAsync(decimal reqDeckle, decimal widthPlus, decimal widthMinus, int itemGroupId = -2)
     {
         using var connection = GetConnection();
         var companyId = _currentUserService.GetCompanyId() ?? 0;
@@ -100,7 +100,7 @@ public class ToolMaterialRepository : IToolMaterialRepository
                     ISNULL(IM.EstimationRate, 0) AS EstimationRate
                 FROM ItemMaster AS IM
                 INNER JOIN ItemGroupMaster AS IG ON IG.ItemGroupID = IM.ItemGroupID
-                WHERE IG.ItemGroupNameID = -2
+                WHERE IG.ItemGroupNameID = @ItemGroupNameID
                   AND IM.CompanyID = @CompanyID
                   AND IM.SizeW >= @LowerLimit
                   AND IM.SizeW <= @UpperLimit
@@ -110,6 +110,7 @@ public class ToolMaterialRepository : IToolMaterialRepository
             var results = await connection.QueryAsync<ReelDto>(query, new
             {
                 CompanyID = companyId,
+                ItemGroupNameID = itemGroupId,
                 LowerLimit = lowerLimit,
                 UpperLimit = upperLimit
             });
@@ -130,7 +131,7 @@ public class ToolMaterialRepository : IToolMaterialRepository
                     ISNULL(IM.EstimationRate, 0) AS EstimationRate
                 FROM ItemMaster AS IM
                 INNER JOIN ItemGroupMaster AS IG ON IG.ItemGroupID = IM.ItemGroupID
-                WHERE IG.ItemGroupNameID = -2
+                WHERE IG.ItemGroupNameID = @ItemGroupNameID
                   AND IM.CompanyID = @CompanyID
                   AND IM.SizeW >= @ReqDeckle
                   AND ISNULL(IM.IsDeletedTransaction, 0) = 0
@@ -139,10 +140,40 @@ public class ToolMaterialRepository : IToolMaterialRepository
             var results = await connection.QueryAsync<ReelDto>(query, new
             {
                 CompanyID = companyId,
+                ItemGroupNameID = itemGroupId,
                 ReqDeckle = reqDeckle
             });
             return results.ToList();
         }
+    }
+
+    public async Task<ReelDto?> GetReelByIdAsync(long itemId)
+    {
+        using var connection = GetConnection();
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
+
+        string query = @"
+            SELECT 
+                IM.ItemID,
+                IM.ItemCode,
+                IM.ItemName,
+                ISNULL(IM.GSM, 0) AS GSM,
+                ISNULL(IM.BF, 0) AS BF,
+                ISNULL(IM.PhysicalStock, 0) AS PhysicalStock,
+                IM.StockUnit,
+                ISNULL(IM.SizeW, 0) AS SizeW,
+                ISNULL(IM.EstimationRate, 0) AS EstimationRate
+            FROM ItemMaster AS IM
+            WHERE IM.ItemID = @ItemID
+              AND IM.CompanyID = @CompanyID
+              AND ISNULL(IM.IsDeletedTransaction, 0) = 0";
+
+        var result = await connection.QueryFirstOrDefaultAsync<ReelDto>(query, new
+        {
+            CompanyID = companyId,
+            ItemID = itemId
+        });
+        return result;
     }
 
     public async Task<List<ProcessMaterialDto>> GetProcessMaterialsAsync(string processIds)
