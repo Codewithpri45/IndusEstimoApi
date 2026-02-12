@@ -12,7 +12,6 @@ using IndasEstimo.Infrastructure.Repositories.Estimation;
 using IndasEstimo.Infrastructure.Repositories.Menu;
 using IndasEstimo.Infrastructure.Services.Estimation;
 using IndasEstimo.Infrastructure.Services.Menu;
-
 using IndasEstimo.Application.Interfaces.Repositories.Inventory;
 using IndasEstimo.Application.Interfaces.Services;
 using IndasEstimo.Application.Interfaces.Services.Inventory;
@@ -68,6 +67,9 @@ builder.Services.AddScoped<IRequisitionApprovalService, RequisitionApprovalServi
 builder.Services.AddScoped<IPurchaseOrderApprovalService, PurchaseOrderApprovalService>();
 builder.Services.AddScoped<IPurchaseGRNService, PurchaseGRNService>();
 builder.Services.AddScoped<IGRNApprovalService, GRNApprovalService>();
+builder.Services.AddScoped<IItemIssueDirectRepository, ItemIssueDirectRepository>();
+builder.Services.AddScoped<IItemIssueDirectService, ItemIssueDirectService>();
+
 builder.Services.AddScoped<IItemMasterService, ItemMasterService>();
 builder.Services.AddScoped<ILedgerMasterService, LedgerMasterService>();
 builder.Services.AddScoped<IWarehouseMasterService, WarehouseMasterService>();

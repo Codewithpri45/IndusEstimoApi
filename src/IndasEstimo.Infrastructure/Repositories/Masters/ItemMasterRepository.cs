@@ -84,10 +84,11 @@ public class ItemMasterRepository : IItemMasterRepository
             return new List<object>();
 
         // Execute dynamic query (preserve existing logic)
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
         string executeSql;
         if (queryConfig.ToUpper().Contains("EXECUTE"))
         {
-            executeSql = queryConfig + " '', " + masterID;
+            executeSql = queryConfig + " @TblName='', @ItemGroupID=" + masterID + ", @CompanyID=" + companyId;
         }
         else
         {
