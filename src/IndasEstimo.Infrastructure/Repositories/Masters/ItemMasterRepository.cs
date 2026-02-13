@@ -212,7 +212,7 @@ public class ItemMasterRepository : IItemMasterRepository
                 new { ItemCodePrefix = itemCodePrefix },
                 transaction);
 
-            var itemCode = $"{itemCodePrefix}{maxItemNo}";
+            var itemCode = $"{itemCodePrefix}{maxItemNo:D5}";
 
             // Get valid columns from table schema
             var validColumns = await GetTableColumnsAsync(connection, transaction, "ItemMaster");
@@ -221,12 +221,14 @@ public class ItemMasterRepository : IItemMasterRepository
             var columns = new List<string>
             {
                 "CreatedDate", "UserID", "CompanyID", "FYear",
-                "CreatedBy", "ItemCode", "ItemCodePrefix", "MaxItemNo"
+                "CreatedBy", "ItemCode", "ItemCodePrefix", "MaxItemNo",
+                "ItemGroupID"
             };
             var values = new List<string>
             {
                 "@CreatedDate", "@UserID", "@CompanyID", "@FYear",
-                "@CreatedBy", "@ItemCode", "@ItemCodePrefix", "@MaxItemNo"
+                "@CreatedBy", "@ItemCode", "@ItemCodePrefix", "@MaxItemNo",
+                "@ItemGroupID"
             };
             var parameters = new DynamicParameters();
             parameters.Add("@CreatedDate", DateTime.Now);
@@ -237,6 +239,7 @@ public class ItemMasterRepository : IItemMasterRepository
             parameters.Add("@ItemCode", itemCode);
             parameters.Add("@ItemCodePrefix", itemCodePrefix);
             parameters.Add("@MaxItemNo", maxItemNo);
+            parameters.Add("@ItemGroupID", request.ItemGroupID);
 
             // Only add columns that exist in the table
             int paramIndex = 0;
@@ -262,6 +265,139 @@ public class ItemMasterRepository : IItemMasterRepository
             if (itemId <= 0)
             {
                 return "Error in main";
+            }
+
+            // Insert into ItemMasterDetails for each field from ItemGroupFieldMaster
+            _logger.LogInformation("SaveItemAsync - ItemID: {ItemID}, ItemGroupID: {ItemGroupID}", itemId, request.ItemGroupID);
+            _logger.LogInformation("SaveItemAsync - CostingDataItemMaster keys: {Keys}", string.Join(", ", itemMasterData.Keys));
+
+            var fieldsSql = @"
+                SELECT ItemGroupFieldID, FieldName, ISNULL(UnitMeasurement,'') as UnitMeasurement
+                FROM ItemGroupFieldMaster
+                WHERE ItemGroupID = @ItemGroupID
+                AND ISNULL(IsDeletedTransaction, 0) <> 1
+                ORDER BY FieldDrawSequence";
+
+            var fields = (await connection.QueryAsync<dynamic>(fieldsSql, new { request.ItemGroupID }, transaction)).ToList();
+            _logger.LogInformation("SaveItemAsync - ItemGroupFieldMaster fields: {Fields}", string.Join(", ", fields.Select(f => (string)f.FieldName)));
+
+            // Build a lookup of FieldName -> FieldValue and UnitMeasurement for formula generation
+            var fieldValueMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var fieldUnitMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var field in fields)
+            {
+                string fieldName = field.FieldName;
+                string fieldId = field.ItemGroupFieldID.ToString();
+                string unitMeasurement = field.UnitMeasurement ?? "";
+                object? fieldValue = null;
+
+                // Check if the field value was provided in the request
+                if (itemMasterData.TryGetValue(fieldName, out var rawValue))
+                {
+                    fieldValue = ConvertJsonElement(rawValue);
+                }
+
+                var fieldValueStr = fieldValue?.ToString() ?? "";
+                fieldValueMap[fieldName] = fieldValueStr;
+                fieldUnitMap[fieldName] = unitMeasurement;
+
+                var detailInsertSql = @"
+                    INSERT INTO ItemMasterDetails
+                        (ItemID, ItemGroupID, FieldID, FieldName, FieldValue,
+                         CompanyID, UserID, FYear, CreatedBy, CreatedDate)
+                    VALUES
+                        (@ItemID, @ItemGroupID, @FieldID, @FieldName, @FieldValue,
+                         @CompanyID, @UserID, @FYear, @CreatedBy, GETDATE())";
+
+                await connection.ExecuteAsync(detailInsertSql, new
+                {
+                    ItemID = itemId,
+                    ItemGroupID = request.ItemGroupID,
+                    FieldID = fieldId,
+                    FieldName = fieldName,
+                    FieldValue = fieldValueStr,
+                    CompanyID = companyId,
+                    UserID = userId,
+                    FYear = fYear,
+                    CreatedBy = userId
+                }, transaction);
+            }
+
+            // Generate ItemName and ItemDescription from formulas
+            // Formula is a comma-separated list of field names, e.g. "Quality,GSM,ReleaseGSM,Manufecturer"
+            // ItemName: field values joined with ", " (GSM fields get " GSM" suffix, ItemSize gets " MM" suffix)
+            // ItemDescription: "FieldName:FieldValue" pairs joined with ", "
+            var formulaSql = @"
+                SELECT NULLIF(ItemNameFormula,'') as ItemNameFormula,
+                       NULLIF(ItemDescriptionFormula,'') as ItemDescriptionFormula
+                FROM ItemGroupMaster
+                WHERE ItemGroupID = @ItemGroupID
+                AND ISNULL(IsDeletedTransaction, 0) <> 1";
+
+            var formula = await connection.QueryFirstOrDefaultAsync<dynamic>(formulaSql, new { request.ItemGroupID }, transaction);
+
+            if (formula != null)
+            {
+                string? nameFormula = formula.ItemNameFormula;
+                string? descFormula = formula.ItemDescriptionFormula;
+
+                // Build ItemName from formula field names
+                string itemNameResult = "";
+                if (!string.IsNullOrEmpty(nameFormula))
+                {
+                    var nameFields = nameFormula.Split(',');
+                    var nameParts = new List<string>();
+                    foreach (var nf in nameFields)
+                    {
+                        var fn = nf.Trim();
+                        if (fieldValueMap.TryGetValue(fn, out var fv) && !string.IsNullOrEmpty(fv) && fv != "-" && fv != "0")
+                        {
+                            var unit = fieldUnitMap.TryGetValue(fn, out var u) ? u : "";
+                            if (!string.IsNullOrEmpty(unit))
+                                nameParts.Add($"{fv} {unit}");
+                            else if (fn == "GSM" && decimal.TryParse(fv, out var gsmVal) && gsmVal > 0)
+                                nameParts.Add($"{fv} GSM");
+                            else if (fn == "ItemSize" && !string.IsNullOrWhiteSpace(fv))
+                                nameParts.Add($"{fv} MM");
+                            else
+                                nameParts.Add(fv);
+                        }
+                    }
+                    itemNameResult = string.Join(", ", nameParts);
+                }
+
+                // Build ItemDescription from formula field names as "FieldName:FieldValue" pairs
+                string itemDescResult = "";
+                if (!string.IsNullOrEmpty(descFormula))
+                {
+                    var descFields = descFormula.Split(',');
+                    var descParts = new List<string>();
+                    foreach (var df in descFields)
+                    {
+                        var fn = df.Trim();
+                        if (fieldValueMap.TryGetValue(fn, out var fv))
+                        {
+                            descParts.Add($"{fn}:{fv}");
+                        }
+                    }
+                    itemDescResult = string.Join(", ", descParts);
+                }
+
+                if (!string.IsNullOrEmpty(itemNameResult) || !string.IsNullOrEmpty(itemDescResult))
+                {
+                    var updateNameSql = @"
+                        UPDATE ItemMaster
+                        SET ItemName = @ItemName, ItemDescription = @ItemDescription
+                        WHERE ItemID = @ItemID";
+
+                    await connection.ExecuteAsync(updateNameSql, new
+                    {
+                        ItemName = itemNameResult,
+                        ItemDescription = itemDescResult,
+                        ItemID = itemId
+                    }, transaction);
+                }
             }
 
             await transaction.CommitAsync();
@@ -1053,15 +1189,27 @@ public class ItemMasterRepository : IItemMasterRepository
         {
             return jsonElement.ValueKind switch
             {
-                JsonValueKind.String => jsonElement.GetString(),
+                JsonValueKind.String => ConvertStringValue(jsonElement.GetString()),
                 JsonValueKind.Number => jsonElement.TryGetInt64(out long l) ? l : jsonElement.GetDouble(),
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
+                JsonValueKind.True => 1,
+                JsonValueKind.False => 0,
                 JsonValueKind.Null => null,
                 JsonValueKind.Undefined => null,
                 _ => jsonElement.ToString()
             };
         }
+        if (value is string strVal)
+            return ConvertStringValue(strVal);
+        if (value is bool boolVal)
+            return boolVal ? 1 : 0;
+        return value;
+    }
+
+    private object? ConvertStringValue(string? value)
+    {
+        if (value == null) return null;
+        if (value.Equals("false", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (value.Equals("true", StringComparison.OrdinalIgnoreCase)) return 1;
         return value;
     }
 
