@@ -59,7 +59,7 @@ public class PurchaseGRNRepository : IPurchaseGRNRepository
 
     public async Task<List<PendingPurchaseOrderDto>> GetPendingOrdersListAsync()
     {
-        var productionUnitIdStr = _currentUserService.GetProductionUnitIdStr();
+        var productionUnitIdStr = _currentUserService.GetProductionUnitIdStr() ?? "0";
 
         var sql = $@"
             SELECT
@@ -129,7 +129,7 @@ public class PurchaseGRNRepository : IPurchaseGRNRepository
 
     public async Task<List<ReceiptNoteListDto>> GetReceiptNoteListAsync(string fromDate, string toDate)
     {
-        var productionUnitIdStr = _currentUserService.GetProductionUnitIdStr();
+        var productionUnitIdStr = _currentUserService.GetProductionUnitIdStr() ?? "0";
 
         var sql = $@"
             SELECT
@@ -154,38 +154,43 @@ public class PurchaseGRNRepository : IPurchaseGRNRepository
                 NULLIF(ITM.FYear, '') AS FYear,
                 NULLIF(UM.UserName, '') AS CreatedBy,
                 ISNULL(ITM.ReceivedBy, 0) AS ReceivedBy,
-                ITD.IsVoucherItemApproved, CM.IsGRNApprovalRequired,
-                PUM.ProductionUnitID, PUM.ProductionUnitName, CM.CompanyName, CM.CompanyID,
+                ITD.IsVoucherItemApproved, ISNULL(CM.IsGRNApprovalRequired, 0) AS IsGRNApprovalRequired,
+                ISNULL(PUM.ProductionUnitID, ITM.ProductionUnitID) AS ProductionUnitID,
+                ISNULL(PUM.ProductionUnitName, '') AS ProductionUnitName,
+                ISNULL(CM.CompanyName, '') AS CompanyName,
+                ISNULL(CM.CompanyID, ITM.CompanyID) AS CompanyID,
                 JB.JobName, ISNULL(ITM.BiltyNo, '') AS BiltyNo,
                 REPLACE(CONVERT(Varchar(13), ITM.BiltyDate, 106), ' ', '-') AS BiltyDate
             FROM ItemTransactionMain AS ITM
             INNER JOIN ItemTransactionDetail AS ITD ON ITM.TransactionID = ITD.TransactionID
                 AND ITM.CompanyID = ITD.CompanyID AND ISNULL(ITM.IsDeletedTransaction, 0) = 0
                 AND ISNULL(ITD.IsDeletedTransaction, 0) = 0
-            INNER JOIN ProductionUnitMaster AS PUM ON PUM.ProductionUnitID = ITM.ProductionUnitID
-            INNER JOIN CompanyMaster AS CM ON CM.CompanyID = PUM.CompanyID
+            LEFT JOIN ProductionUnitMaster AS PUM ON PUM.ProductionUnitID = ITM.ProductionUnitID
+            LEFT JOIN CompanyMaster AS CM ON CM.CompanyID = ISNULL(PUM.CompanyID, ITM.CompanyID)
             INNER JOIN ItemTransactionMain AS ITMP ON ITMP.TransactionID = ITD.PurchaseTransactionID
                 AND ISNULL(ITMP.IsDeletedTransaction, 0) = 0
             INNER JOIN LedgerMaster AS LM ON LM.LedgerID = ITM.LedgerID
                 AND LM.IsDeletedTransaction = 0
-            INNER JOIN UserMaster AS UM ON UM.UserID = ITM.CreatedBy
-            INNER JOIN LedgerMaster AS EM ON EM.LedgerID = ITM.ReceivedBy
+            LEFT JOIN UserMaster AS UM ON UM.UserID = ITM.CreatedBy
+            LEFT JOIN LedgerMaster AS EM ON EM.LedgerID = ITM.ReceivedBy
                 AND EM.IsDeletedTransaction = 0
             LEFT JOIN JobBooking AS JB ON JB.BookingID = ITD.JobBookingID
                 AND ISNULL(JB.IsDeletedTransaction, 0) = 0
             WHERE (ITM.VoucherID = -14)
-              AND ITM.VoucherDate BETWEEN @FromDate AND @ToDate
-              AND ITM.ProductionUnitID IN({productionUnitIdStr})
+              AND ITM.VoucherDate BETWEEN  @FromDate AND  @ToDate
+              AND (ITM.ProductionUnitID IN({productionUnitIdStr}) OR ISNULL(ITM.ProductionUnitID, 0) = 0)
             GROUP BY ISNULL(ITM.EWayBillNumber, ''), REPLACE(CONVERT(Varchar(13), ITM.EWayBillDate, 106), ' ', '-'),
                 ITM.TransactionID, ITD.PurchaseTransactionID, ITD.Remark, ITM.LedgerID, ITM.VoucherNo, ITM.VoucherDate,
                 ITMP.VoucherNo, ITMP.VoucherDate, ITM.DeliveryNoteNo, ITM.DeliveryNoteDate, ITM.GateEntryNo,
                 ITM.GateEntryDate, ITM.LRNoVehicleNo, ITM.Transporter, ITM.Narration, ISNULL(ITM.GateEntryTransactionID, 0),
                 EM.LedgerName, LM.LedgerName, ITM.FYear, ITM.MaxVoucherNo, UM.UserName, ITM.ReceivedBy,
-                ITD.RefJobCardContentNo, ITD.IsVoucherItemApproved, CM.IsGRNApprovalRequired,
-                PUM.ProductionUnitID, PUM.ProductionUnitName, CM.CompanyName, CM.CompanyID,
+                ITD.RefJobCardContentNo, ITD.IsVoucherItemApproved, ISNULL(CM.IsGRNApprovalRequired, 0),
+                ISNULL(PUM.ProductionUnitID, ITM.ProductionUnitID), ISNULL(PUM.ProductionUnitName, ''),
+                ISNULL(CM.CompanyName, ''), ISNULL(CM.CompanyID, ITM.CompanyID),
                 JB.JobName, ITM.BiltyDate, ITM.BiltyNo
             ORDER BY FYear DESC, ITM.MaxVoucherNo DESC";
 
+        // Pass DD-MM-YYYY strings directly — SQL converts them via CONVERT(datetime, @param, 105)
         using var connection = GetConnection();
         var result = await connection.QueryAsync<ReceiptNoteListDto>(sql,
             new { FromDate = fromDate, ToDate = toDate });
@@ -194,7 +199,7 @@ public class PurchaseGRNRepository : IPurchaseGRNRepository
 
     public async Task<List<ReceiptVoucherBatchDetailDto>> GetReceiptVoucherBatchDetailAsync(long transactionId)
     {
-        var productionUnitIdStr = _currentUserService.GetProductionUnitIdStr();
+        var productionUnitIdStr = _currentUserService.GetProductionUnitIdStr() ?? "0";
 
         var sql = $@"
             SELECT
@@ -564,6 +569,13 @@ public class PurchaseGRNRepository : IPurchaseGRNRepository
         var result = await connection.QueryFirstOrDefaultAsync<string>(sql,
             new { CompanyID = companyId, FYear = fYear });
         return result ?? "";
+    }
+
+    public async Task<string> GetNextVoucherNoAsync(string prefix)
+    {
+        var (voucherNo, _) = await _dbOperations.GenerateVoucherNoAsync(
+            "ItemTransactionMain", -14, prefix);
+        return voucherNo;
     }
 
     public async Task<(bool Success, string VoucherNo, long TransactionID, string Message)> SaveReceiptDataAsync(

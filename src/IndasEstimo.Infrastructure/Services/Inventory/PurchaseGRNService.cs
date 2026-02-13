@@ -51,6 +51,15 @@ public class PurchaseGRNService : IPurchaseGRNService
     {
         try
         {
+            // Default to current month if dates are empty
+            if (string.IsNullOrWhiteSpace(fromDate))
+            {
+                var today = DateTime.Today;
+                fromDate = new DateTime(today.Year, today.Month, 1).ToString("dd-MM-yyyy");
+            }
+            if (string.IsNullOrWhiteSpace(toDate))
+                toDate = DateTime.Today.ToString("dd-MM-yyyy");
+
             var data = await _repository.GetReceiptNoteListAsync(fromDate, toDate);
             return Result<List<ReceiptNoteListDto>>.Success(data);
         }
@@ -228,6 +237,20 @@ public class PurchaseGRNService : IPurchaseGRNService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting last transaction date");
+            return Result<string>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<string>> GetNextVoucherNoAsync(string prefix)
+    {
+        try
+        {
+            var result = await _repository.GetNextVoucherNoAsync(prefix);
+            return Result<string>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting next voucher number");
             return Result<string>.Failure($"Error: {ex.Message}");
         }
     }

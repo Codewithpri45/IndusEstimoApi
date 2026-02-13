@@ -19,6 +19,11 @@ public class PurchaseGRN
     public DateTime? BiltyDate { get; set; }
     public string? EWayBillNumber { get; set; }
     public DateTime? EWayBillDate { get; set; }
+    // Audit fields — auto-filled by ManageAuditAndParentFields from JWT claims
+    public int CompanyID { get; set; }
+    public int ProductionUnitID { get; set; }
+    public int CreatedBy { get; set; }
+    public string FYear { get; set; } = string.Empty;
 }
 
 public class PurchaseGRNDetail
@@ -39,6 +44,11 @@ public class PurchaseGRNDetail
     public string? RefJobCardContentNo { get; set; }
     public string? Remark { get; set; }
     public long JobBookingID { get; set; }
+    // Audit fields — auto-filled by ManageAuditAndParentFields from JWT claims
+    public int CompanyID { get; set; }
+    public int ProductionUnitID { get; set; }
+    public int CreatedBy { get; set; }
+    public string FYear { get; set; } = string.Empty;
 }
 
 public class PurchaseGRNPOUpdate

@@ -21,6 +21,7 @@ public interface IPurchaseGRNRepository
     Task<string> ValidateSupplierBatchReceiptDataAsync(int voucherID, List<SupplierBatchItem> items);
     Task<string> CheckPermissionAsync(long transactionId);
     Task<string> GetLastTransactionDateAsync();
+    Task<string> GetNextVoucherNoAsync(string prefix);
 
     // CRUD Operations
     Task<(bool Success, string VoucherNo, long TransactionID, string Message)> SaveReceiptDataAsync(

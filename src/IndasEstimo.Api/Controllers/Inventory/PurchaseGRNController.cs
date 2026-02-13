@@ -336,6 +336,24 @@ public class PurchaseGRNController : ControllerBase
     }
 
     /// <summary>
+    /// Get next voucher number preview for GRN (read-only, does not consume the number)
+    /// </summary>
+    [HttpGet("next-voucher-no")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetNextVoucherNo([FromQuery] string prefix = "GRN")
+    {
+        var result = await _service.GetNextVoucherNoAsync(prefix);
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(new { message = result.ErrorMessage });
+        }
+
+        return Ok(new { voucherNo = result.Data });
+    }
+
+    /// <summary>
     /// Save new GRN (Goods Receipt Note)
     /// Creates GRN, updates stock, marks PO items as completed if fully received
     /// </summary>

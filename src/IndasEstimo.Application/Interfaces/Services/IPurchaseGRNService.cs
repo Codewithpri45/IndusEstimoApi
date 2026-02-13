@@ -23,6 +23,7 @@ public interface IPurchaseGRNService
     Task<Result<string>> ValidateSupplierBatchReceiptDataAsync(int voucherID, List<SupplierBatchItem> items);
     Task<Result<string>> CheckPermissionAsync(long transactionId);
     Task<Result<string>> GetLastTransactionDateAsync();
+    Task<Result<string>> GetNextVoucherNoAsync(string prefix);
 
     // CRUD Operations
     Task<Result<(string VoucherNo, long TransactionID)>> SaveReceiptDataAsync(SaveReceiptDataRequest request);
