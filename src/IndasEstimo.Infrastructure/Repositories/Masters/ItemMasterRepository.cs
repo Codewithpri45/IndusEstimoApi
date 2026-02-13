@@ -97,9 +97,17 @@ public class ItemMasterRepository : IItemMasterRepository
 
         try
         {
-            // Execute and return dynamic results
+            // Execute and return dynamic results, filter out soft-deleted items
             var result = await connection.QueryAsync<dynamic>(executeSql);
-            return result.ToList();
+            return result.Where(r =>
+            {
+                var dict = (IDictionary<string, object>)r;
+                if (dict.TryGetValue("IsDeletedTransaction", out var val))
+                {
+                    return Convert.ToInt32(val ?? 0) == 0;
+                }
+                return true;
+            }).ToList();
         }
         catch (Exception ex)
         {
