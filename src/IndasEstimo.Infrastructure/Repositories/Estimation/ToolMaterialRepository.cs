@@ -93,8 +93,6 @@ public class ToolMaterialRepository : IToolMaterialRepository
                     IM.ItemCode,
                     IM.ItemName,
                     ISNULL(IM.GSM, 0) AS GSM,
-                    ISNULL(IM.ReleaseGSM, 0) AS ReleaseGSM,
-                    ISNULL(IM.AdhesiveGSM, 0) AS AdhesiveGSM,
                     ISNULL(IM.BF, 0) AS BF,
                     ISNULL(IM.PhysicalStock, 0) AS PhysicalStock,
                     IM.StockUnit,
@@ -126,8 +124,6 @@ public class ToolMaterialRepository : IToolMaterialRepository
                     IM.ItemCode,
                     IM.ItemName,
                     ISNULL(IM.GSM, 0) AS GSM,
-                    ISNULL(IM.ReleaseGSM, 0) AS ReleaseGSM,
-                    ISNULL(IM.AdhesiveGSM, 0) AS AdhesiveGSM,
                     ISNULL(IM.BF, 0) AS BF,
                     ISNULL(IM.PhysicalStock, 0) AS PhysicalStock,
                     IM.StockUnit,
@@ -162,8 +158,6 @@ public class ToolMaterialRepository : IToolMaterialRepository
                 IM.ItemCode,
                 IM.ItemName,
                 ISNULL(IM.GSM, 0) AS GSM,
-                ISNULL(IM.ReleaseGSM, 0) AS ReleaseGSM,
-                ISNULL(IM.AdhesiveGSM, 0) AS AdhesiveGSM,
                 ISNULL(IM.BF, 0) AS BF,
                 ISNULL(IM.PhysicalStock, 0) AS PhysicalStock,
                 IM.StockUnit,
@@ -213,35 +207,5 @@ public class ToolMaterialRepository : IToolMaterialRepository
 
         var results = await connection.QueryAsync<ProcessMaterialDto>(query, new { CompanyID = companyId });
         return results.ToList();
-    }
-    public async Task<DieToolDto?> GetToolByIdAsync(long toolId)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-
-        string query = @"
-            SELECT 
-                ToolID,
-                ToolCode,
-                ToolName,
-                ToolType,
-                ISNULL(SizeL, 0) AS SizeL,
-                ISNULL(SizeW, 0) AS SizeW,
-                ISNULL(SizeH, 0) AS SizeH,
-                ISNULL(CircumferenceInch, 0) AS CircumferenceInch,
-                ISNULL(CircumferenceMM, 0) AS CircumferenceMM,
-                ISNULL(NoOfTeeth, 0) AS NoOfTeeth,
-                ISNULL(ToolRate, 0) AS ToolRate
-            FROM ToolMaster
-            WHERE ToolID = @ToolID
-              AND CompanyID = @CompanyID
-              AND ISNULL(IsDeletedTransaction, 0) = 0";
-
-        var result = await connection.QueryFirstOrDefaultAsync<DieToolDto>(query, new
-        {
-            CompanyID = companyId,
-            ToolID = toolId
-        });
-        return result;
     }
 }

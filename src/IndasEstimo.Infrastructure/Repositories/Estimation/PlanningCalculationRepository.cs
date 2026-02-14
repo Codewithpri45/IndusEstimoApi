@@ -160,8 +160,29 @@ public class PlanningCalculationRepository : IPlanningCalculationRepository
 
     public async Task<WastageSlabDto?> GetWastageSlabAsync(decimal actualSheets, string wastageType)
     {
-        // WastageTypeSlab table does not exist. Returning null for now as logic seems machine-specific.
-        return await Task.FromResult<WastageSlabDto?>(null);
+        using var connection = GetConnection();
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
+
+        string query = @"
+            SELECT TOP 1
+                SlabID,
+                WastageType,
+                ISNULL(FromValue, 0) AS FromValue,
+                ISNULL(ToValue, 0) AS ToValue,
+                ISNULL(WastagePercentage, 0) AS WastagePercentage
+            FROM WastageTypeSlab
+            WHERE WastageType = @WastageType
+              AND FromValue <= @ActualSheets
+              AND ToValue >= @ActualSheets
+              AND CompanyID = @CompanyID
+              AND ISNULL(IsDeletedTransaction, 0) = 0
+            ORDER BY FromValue";
+
+        var result = await connection.QueryFirstOrDefaultAsync<WastageSlabDto>(
+            query,
+            new { WastageType = wastageType, ActualSheets = actualSheets, CompanyID = companyId });
+
+        return result;
     }
 
     public async Task<List<WastageTypeDto>> GetAllWastageTypesAsync()
@@ -171,10 +192,9 @@ public class PlanningCalculationRepository : IPlanningCalculationRepository
 
         string query = @"
             SELECT DISTINCT WastageType
-            FROM MachineMaster
+            FROM WastageTypeSlab
             WHERE CompanyID = @CompanyID
               AND ISNULL(IsDeletedTransaction, 0) = 0
-              AND ISNULL(WastageType, '') <> ''
             ORDER BY WastageType";
 
         var results = await connection.QueryAsync<WastageTypeDto>(query, new { CompanyID = companyId });

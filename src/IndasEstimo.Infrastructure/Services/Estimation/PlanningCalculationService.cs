@@ -137,7 +137,7 @@ public class PlanningCalculationService : IPlanningCalculationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting wastage types");
-            return Result<List<WastageTypeDto>>.Failure($"Failed to get wastage types: {ex.Message}");
+            return Result<List<WastageTypeDto>>.Failure("Failed to get wastage types");
         }
     }
 

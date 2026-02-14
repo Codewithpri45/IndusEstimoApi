@@ -234,11 +234,12 @@ public class MasterDataRepository : IMasterDataRepository
                 NULLIF(REPLACE(C.ContentDomainType, '""', ''), '') AS ContentDomainType
             FROM ContentMaster AS C
             INNER JOIN CategoryContentAllocationMaster AS CCA ON CCA.ContentID = C.ContentID
+                AND ISNULL(CCA.IsDeletedTransaction, 0) = 0
             WHERE CCA.CategoryID = @CategoryID
               AND C.CompanyID = @CompanyID
               AND ISNULL(C.IsActive, 0) = 1
-
-            ORDER BY ContentName";
+              AND ISNULL(C.IsDeletedTransaction, 0) = 0
+            ORDER BY C.ContentName";
 
         var results = await connection.QueryAsync<ContentByCategoryDto>(query, new { CategoryID = categoryId, CompanyID = companyId });
         return results.ToList();
