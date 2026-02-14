@@ -63,6 +63,7 @@ public class FlexoPlanCalculationRequest
     public string Orientation { get; set; } = "Roll"; // PrePlannedSheetLabel or standard
     public string WastageType { get; set; } = "Machine Default"; // Machine Default, Percentage, Flat
     public double FlatWastageValue { get; set; } // Percentage or Flat Meters
+    public long CategoryId { get; set; } // Category for wastage calculation
 }
 
 public class OperationCostDto

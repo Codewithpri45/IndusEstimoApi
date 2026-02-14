@@ -119,7 +119,7 @@ public class FlexoCalculationService : IFlexoCalculationService
         if (request.CylinderId > 0)
         {
              // If User Selected a Cylinder, we validate if the Job Repeat fits the Cylinder Circumference
-             var cylinder = await _materialRepository.GetToolByIdAsync(request.CylinderId);
+             var cylinder = await _materialRepository.GetToolByIdAsync(request.CylinderId.Value);
              if (cylinder != null && cylinder.CircumferenceMM > 0)
              {
                  double jobRepeat = request.JobSizeH + request.GapAround;
@@ -220,7 +220,7 @@ public class FlexoCalculationService : IFlexoCalculationService
         string toolDesc = $"Cylinder ID: {request.CylinderId}";
         if (request.CylinderId > 0)
         {
-             var cylinder = await _materialRepository.GetToolByIdAsync(request.CylinderId);
+             var cylinder = await _materialRepository.GetToolByIdAsync(request.CylinderId.Value);
              if (cylinder != null)
              {
                  toolDesc = $"{cylinder.ToolName} (Circ: {cylinder.CircumferenceMM}mm)";
