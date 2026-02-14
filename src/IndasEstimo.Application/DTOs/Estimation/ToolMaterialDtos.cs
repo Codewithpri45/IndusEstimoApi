@@ -38,11 +38,14 @@ public class ReelDto
     public string ItemCode { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public decimal GSM { get; set; }
+    public decimal ReleaseGSM { get; set; }
+    public decimal AdhesiveGSM { get; set; }
     public decimal BF { get; set; }
     public decimal PhysicalStock { get; set; }
     public string? StockUnit { get; set; }
     public decimal SizeW { get; set; }
     public decimal EstimationRate { get; set; }
+    public decimal AvgRollLength { get; set; } // Legacy: 18 (for Roll Change logic)
 }
 
 /// <summary>
