@@ -57,11 +57,21 @@ public class FlexoPlanCalculationRequest
     public double MakeReadyRate { get; set; }
     public double CoatingRate { get; set; }
     public List<OperationCostDto> AdditionalOperations { get; set; } = new();
+
+    // Advanced Wastage & Planning Options
+    public bool ShadeCardRequired { get; set; } // GblShadeCardCreationRequired
+    public string Orientation { get; set; } = "Roll"; // PrePlannedSheetLabel or standard
+    public string WastageType { get; set; } = "Machine Default"; // Machine Default, Percentage, Flat
+    public double FlatWastageValue { get; set; } // Percentage or Flat Meters
 }
 
 public class OperationCostDto
 {
     public long ProcessId { get; set; }
     public double Rate { get; set; }
-    public string RateType { get; set; } = "PerUnit"; // PerHour, PerUnit
+    public string RateType { get; set; } = "PerUnit"; // Legacy: TypeofCharges (e.g. PerUnit, PerHour, Fixed, Reference, etc.)
+    public double MinimumCharges { get; set; }
+    public double SetupCharges { get; set; }
+    public double WastagePercent { get; set; } // ProcessWastagePercentage
+    public double FlatWastage { get; set; } // ProcessFlatWastageValue
 }

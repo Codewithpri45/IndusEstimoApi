@@ -103,7 +103,9 @@ public class MachineProcessRepository : IMachineProcessRepository
                 ISNULL(PM.SetupCharges, 0) AS SetupCharges,
                 ISNULL(PM.IsOnlineProcess, 0) AS IsOnlineProcess,
                 ISNULL(DM.SequenceNo, 0) AS SequenceNo,
-                PM.DepartmentID
+                PM.DepartmentID,
+                ISNULL(PM.ProcessWastagePercentage, 0) AS WastagePercentage,
+                ISNULL(PM.ProcessFlatWastageValue, 0) AS FlatWastage
             FROM ProcessMaster AS PM
             INNER JOIN DepartmentMaster AS DM ON DM.DepartmentID = PM.DepartmentID
             WHERE PM.CompanyID = @CompanyID
@@ -225,6 +227,30 @@ public class MachineProcessRepository : IMachineProcessRepository
 
         var results = await connection.QueryAsync<IndasEstimo.Application.DTOs.Masters.MachineSlabDto>(query, 
             new { MachineID = machineId, CompanyID = companyId });
+        return results.ToList();
+    }
+    public async Task<List<CategoryWastageSettingDto>> GetCategoryWastageSettingsAsync(long categoryId)
+    {
+        using var connection = GetConnection();
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
+
+        string query = @"
+            SELECT 
+                CategoryID, 
+                PrintingStyle, 
+                ISNULL(NoOfColor, 0) AS NoOfColor, 
+                Unit, 
+                ISNULL(FlatWastage, 0) AS FlatWastage, 
+                ISNULL(WastagePercentage, 0) AS WastagePercentage, 
+                CalculationOn 
+            FROM CategoryWiseWastageSetting 
+            WHERE CategoryID = @CategoryID 
+              AND CompanyID = @CompanyID
+              AND ISNULL(IsDeletedTransaction, 0) = 0 
+            ORDER BY PrintingStyle, NoOfColor";
+
+        var results = await connection.QueryAsync<CategoryWastageSettingDto>(query, 
+            new { CategoryID = categoryId, CompanyID = companyId });
         return results.ToList();
     }
 }

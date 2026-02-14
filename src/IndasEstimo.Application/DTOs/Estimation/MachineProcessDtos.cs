@@ -15,6 +15,12 @@ public class MachineGridDto
     public decimal? MinSheetW { get; set; }
     public decimal PerHourRate { get; set; }
     public string? PaperGroup { get; set; }
+    public decimal MakeReadyTime { get; set; } // Legacy: 19
+    public decimal JobChangeOverTime { get; set; } // Legacy: 20
+    public decimal RollChangeOverTime { get; set; }
+    public decimal Speed { get; set; } // Legacy: 24
+    public decimal RollChangeWastage { get; set; } // Legacy: 34
+    public decimal StandardRollLength { get; set; } // Legacy: 35
 }
 
 /// <summary>
@@ -42,7 +48,11 @@ public class OperationDto
     public decimal SetupCharges { get; set; }
     public bool IsOnlineProcess { get; set; }
     public int SequenceNo { get; set; }
+    public bool IsOnlineProcess { get; set; }
+    public int SequenceNo { get; set; }
     public long? DepartmentID { get; set; }
+    public decimal WastagePercentage { get; set; }
+    public decimal FlatWastage { get; set; }
 }
 
 /// <summary>
@@ -70,4 +80,18 @@ public class MachineItemDto
     public string? ItemGroupName { get; set; }
     public decimal EstimationRate { get; set; }
     public string? EstimationUnit { get; set; }
+}
+
+/// <summary>
+/// DTO for Category Wise Wastage Config
+/// </summary>
+public class CategoryWastageSettingDto
+{
+    public long CategoryID { get; set; }
+    public string PrintingStyle { get; set; } = string.Empty; // 'Single Side', 'Both Side'
+    public int NoOfColor { get; set; }
+    public string Unit { get; set; } = string.Empty; // 'Sheets', 'Meter'
+    public decimal FlatWastage { get; set; }
+    public decimal WastagePercentage { get; set; }
+    public string CalculationOn { get; set; } = string.Empty;
 }

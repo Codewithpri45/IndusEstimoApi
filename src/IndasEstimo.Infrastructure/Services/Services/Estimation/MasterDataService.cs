@@ -93,7 +93,7 @@ public class MasterDataService : IMasterDataService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting contents for category: {CategoryID}", categoryId);
-            return Result<List<ContentByCategoryDto>>.Failure("Failed to get contents by category");
+            return Result<List<ContentByCategoryDto>>.Failure($"Failed to get contents by category: {ex.Message}");
         }
     }
 
