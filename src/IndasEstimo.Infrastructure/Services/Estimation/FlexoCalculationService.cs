@@ -37,58 +37,115 @@ public class FlexoCalculationService : IFlexoCalculationService
         {
             var plans = new List<FlexoPlanResult>();
 
-            // 1. Fetch Machine Details and Slabs
-            var machineGrid = await _machineRepository.GetMachineGridAsync("FLEXO"); 
-            var selectedMachine = machineGrid.FirstOrDefault(m => m.MachineID == request.MachineId);
-            
-            if (selectedMachine == null)
+            // CRITICAL FIX (Gap #3): Iterate through ALL machine-cylinder combinations
+            // Legacy: Api_shiring_serviceController.cs Line 15467 - loops through Gbl_DT_Machine.Rows
+            // With LEFT JOIN, machineGrid contains MULTIPLE rows per machine (one per cylinder)
+            var machineGrid = await _machineRepository.GetMachineGridAsync("FLEXO");
+
+            // Filter by requested MachineID - this returns ALL cylinders for that machine
+            var machineCylinderCombos = machineGrid
+                .Where(m => m.MachineID == request.MachineId)
+                .ToList();
+
+            if (machineCylinderCombos.Count == 0)
                 return Result<List<FlexoPlanResult>>.Failure($"Machine ID {request.MachineId} not found.");
 
-            var machineSlabs = await _machineRepository.GetMachineSlabsAsync(selectedMachine.MachineID);
+            var machineSlabs = await _machineRepository.GetMachineSlabsAsync(request.MachineId);
 
             // 2. Decide Calculation Strategy
             ReelDto? specificReel = null;
             if (request.PaperId > 0)
             {
                 specificReel = await _materialRepository.GetReelByIdAsync(request.PaperId);
-                // Note: Not failing here if null yet, handled in branches
-            }
-
-            // Strategy A: Specific Reel Selected -> Use PlanOnRoll to validate/plan that specific reel
-            if (request.PaperId > 0)
-            {
-               if (specificReel == null)
+                if (specificReel == null)
                    return Result<List<FlexoPlanResult>>.Failure($"Paper ID {request.PaperId} not found in database.");
-
-               await PlanOnRoll(request, selectedMachine, specificReel, machineSlabs, plans);
             }
-            else 
-            {
-               // Strategy B: No Reel Selected -> Suggest Options
-               
-               // B1. Find from Standard Reels (PlanOnRoll)
-               var foundReels = await _materialRepository.GetReelsAsync(selectedMachine.MinSheetW ?? 0, 5000, 0, -14); 
-               
-               foreach (var reel in foundReels)
-               {
-                   await PlanOnRoll(request, selectedMachine, reel, machineSlabs, plans);
-               }
 
-               // B2. If Cylinder Selected, ALSO Suggest Optimal Special Sizes (PlanOnCylinder)
-               if (request.CylinderId > 0)
-               {
-                    await PlanOnCylinder(request, selectedMachine, machineSlabs, plans, null);
-               }
+            // LOOP THROUGH EACH MACHINE-CYLINDER COMBINATION (Legacy: for i = 0 to Gbl_DT_Machine.Rows.Count - 1)
+            foreach (var machineWithCylinder in machineCylinderCombos)
+            {
+                // Gap #5: Grain Direction Variations - Legacy calls calculation twice (With Grain & Across Grain)
+                // Legacy: Lines where dimensions are swapped for grain direction trials
+                var grainDirections = new[]
+                {
+                    new { Direction = "With Grain", JobSizeW = request.JobSizeW, JobSizeH = request.JobSizeH },
+                    new { Direction = "Across Grain", JobSizeW = request.JobSizeH, JobSizeH = request.JobSizeW }
+                };
+
+                foreach (var grainVariation in grainDirections)
+                {
+                    // Create modified request with swapped dimensions for grain direction
+                    var modifiedRequest = new FlexoPlanCalculationRequest
+                    {
+                        JobSizeL = request.JobSizeL,
+                        JobSizeW = grainVariation.JobSizeW,
+                        JobSizeH = grainVariation.JobSizeH,
+                        UpsAcross = request.UpsAcross,
+                        UpsAround = request.UpsAround,
+                        GapAcross = request.GapAcross,
+                        GapAround = request.GapAround,
+                        Bleed = request.Bleed,
+                        PaperId = request.PaperId,
+                        PaperRate = request.PaperRate,
+                        PaperRateType = request.PaperRateType,
+                        PaperUnit = request.PaperUnit,
+                        MachineId = request.MachineId,
+                        CylinderId = request.CylinderId,
+                        FrontColors = request.FrontColors,
+                        BackColors = request.BackColors,
+                        SpecialFrontColors = request.SpecialFrontColors,
+                        SpecialBackColors = request.SpecialBackColors,
+                        CoatingType = request.CoatingType,
+                        WindingDirectionId = request.WindingDirectionId,
+                        CoreInnerDia = request.CoreInnerDia,
+                        CoreOuterDia = request.CoreOuterDia,
+                        LabelsPerRoll = request.LabelsPerRoll,
+                        LabelType = request.LabelType,
+                        FinishedFormat = request.FinishedFormat,
+                        Quantity = request.Quantity,
+                        PlateRate = request.PlateRate,
+                        MakeReadyRate = request.MakeReadyRate,
+                        CoatingRate = request.CoatingRate,
+                        AdditionalOperations = request.AdditionalOperations,
+                        ShadeCardRequired = request.ShadeCardRequired,
+                        Orientation = request.Orientation,
+                        WastageType = request.WastageType,
+                        FlatWastageValue = request.FlatWastageValue,
+                        CategoryId = request.CategoryId
+                    };
+
+                    // Strategy A: Specific Reel Selected
+                    if (request.PaperId > 0)
+                    {
+                        await PlanOnRoll(modifiedRequest, machineWithCylinder, specificReel, machineSlabs, plans, grainVariation.Direction);
+                    }
+                    else
+                    {
+                        // Strategy B: No Reel Selected -> Suggest Options
+
+                        // B1. Find from Standard Reels (PlanOnRoll)
+                        var foundReels = await _materialRepository.GetReelsAsync(
+                            machineWithCylinder.MinSheetW ?? 0, 5000, 0, -14);
+
+                        foreach (var reel in foundReels)
+                        {
+                            await PlanOnRoll(modifiedRequest, machineWithCylinder, reel, machineSlabs, plans, grainVariation.Direction);
+                        }
+
+                        // B2. If Cylinder Selected, ALSO Suggest Optimal Special Sizes
+                        if (request.CylinderId > 0)
+                        {
+                            await PlanOnCylinder(modifiedRequest, machineWithCylinder, machineSlabs, plans, null);
+                        }
+                    }
+                }
             }
 
             if (plans.Count == 0)
             {
-                string debugInfo = $"Machine: {selectedMachine.MachineName} (Limits: {selectedMachine.MinSheetW ?? 0}-{selectedMachine.MaxSheetW ?? 0} mm). ";
-                if (request.CylinderId > 0) 
-                    debugInfo += "PlanOnCylinder Strategy: Calculated widths did not fit within machine limits. ";
-                
-                debugInfo += "PlanOnRoll Strategy: No available reels fit within limits or gap logic.";
-                
+                string debugInfo = $"Machine ID: {request.MachineId}, Cylinders found: {machineCylinderCombos.Count}. ";
+                debugInfo += "No valid plans generated for any cylinder combination.";
+
                 return Result<List<FlexoPlanResult>>.Failure($"No valid plans generated. {debugInfo}");
             }
 
@@ -101,7 +158,7 @@ public class FlexoCalculationService : IFlexoCalculationService
         }
     }
 
-    private async Task PlanOnRoll(FlexoPlanCalculationRequest request, MachineGridDto machine, ReelDto reel, List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto> slabs, List<FlexoPlanResult> plans)
+    private async Task PlanOnRoll(FlexoPlanCalculationRequest request, MachineGridDto machine, ReelDto reel, List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto> slabs, List<FlexoPlanResult> plans, string grainDirection = "With Grain")
     {
         double rollWidthEffective = (double)reel.SizeW - ((PlateBearer * 2) + (ColorStrip * 2) + StandardGap);
         double machineMin = (double)(machine.MinSheetW ?? 0);
@@ -156,6 +213,34 @@ public class FlexoCalculationService : IFlexoCalculationService
                 UpsAround = (int)Math.Floor(1000 / (request.JobSizeH + request.GapAround)), // Standard Rows per Meter logic for Flexo Roll
                 CutSizeW = usedWidth,
                 MachineName = machine.MachineName ?? string.Empty,
+
+                // CRITICAL FIX (Gap #4): Populate Cylinder Details from machine-cylinder combo
+                // Legacy: Lines 16771+ (CylinderToolID, CylinderCircumferenceMM, etc.)
+                CylinderCircumference = (double)machine.CylinderCircumferenceMM,
+                CylinderTeeth = machine.CylinderNoOfTeeth,
+                ToolDescription = machine.CylinderToolID > 0
+                    ? $"{machine.CylinderToolCode} (Circ: {machine.CylinderCircumferenceMM}mm, Teeth: {machine.CylinderNoOfTeeth})"
+                    : string.Empty,
+
+                // Gap #8: Gap & Wastage Strip
+                AcrossGap = request.GapAcross,
+                AroundGap = request.GapAround,
+                WastageStrip = (double)reel.SizeW - usedWidth,
+
+                // Gap #10: Paper Breakdown
+                PaperFaceGSM = reel.GSM,
+                PaperReleaseGSM = reel.ReleaseGSM,
+                PaperAdhesiveGSM = reel.AdhesiveGSM,
+                PaperMill = reel.Manufecturer,
+                PaperQuality = reel.Quality,
+                GrainDirection = grainDirection, // Gap #9 & #5: Grain direction from parameter
+
+                // Gap #14: Output Metadata
+                PlanType = "Roll",
+                OutputFormat = request.FinishedFormat,
+                FrontColors = request.FrontColors,
+                BackColors = request.BackColors,
+                PrintingStyle = request.BackColors > 0 ? "Both Side" : "Single Side"
             };
             
             CalculateCosting(plan, request, machine, slabs, reel, categoryWastageSettings, (double)reel.GSM, (double)reel.EstimationRate);
@@ -360,18 +445,71 @@ public class FlexoCalculationService : IFlexoCalculationService
         double totalMeters = preRollTotal + totalRollChangeWastage;
 
         // 4. Material Cost (Paper)
-        double usedGsm = gsm > 0 ? gsm : 50; 
+        double usedGsm = gsm > 0 ? gsm : 50;
         if (reel != null)
         {
              usedGsm = (double)(reel.GSM + reel.ReleaseGSM + reel.AdhesiveGSM);
-             if (usedGsm <= 0) usedGsm = gsm; 
+             if (usedGsm <= 0) usedGsm = gsm;
         }
 
-        plan.TotalPaperWeightKg = (totalMeters * plan.PaperWidth * usedGsm) / 1000000; 
+        // Calculate Square Meters (Legacy: Lines 16445-16448)
+        double reqSquareMeter = (plan.PaperWidth / 1000.0) * reqRunningMeters;
+        double wastageSquareMeter = (plan.PaperWidth / 1000.0) * wastageRunningMeters;
+        double totalSquareMeter = (plan.PaperWidth / 1000.0) * totalMeters;
+        double scrapSquareMeter = totalSquareMeter -
+            ((request.JobSizeH / 1000.0) * (request.JobSizeW / 1000.0) * request.Quantity);
+
+        plan.TotalPaperWeightKg = (totalMeters * plan.PaperWidth * usedGsm) / 1000000;
         plan.TotalQuantity = request.Quantity;
-        
+
+        // Populate Square Meter fields (Gap #7)
+        plan.RequiredRunningMeter = reqRunningMeters;
+        plan.TotalRunningMeter = totalMeters;
+        plan.RequiredSquareMeter = reqSquareMeter;
+        plan.TotalSquareMeter = totalSquareMeter;
+        plan.WastageSquareMeter = wastageSquareMeter;
+        plan.ScrapSquareMeter = scrapSquareMeter;
+
+        // Gap #11: Printing Impressions Calculation
+        // For Flexo: 1 impression = 1 cylinder rotation = cylinder circumference in meters
+        double repeatLength = request.JobSizeH + request.GapAround; // mm
+        if (repeatLength > 0)
+        {
+            // Total impressions = total meters / repeat length (in meters)
+            plan.PrintingImpressions = Math.Round((totalMeters * 1000) / repeatLength, 0);
+            plan.ImpressionsToBeCharged = Math.Round((reqRunningMeters * 1000) / repeatLength, 0);
+        }
+        else
+        {
+            plan.PrintingImpressions = 0;
+            plan.ImpressionsToBeCharged = 0;
+        }
+
+        // CRITICAL FIX (Gap #6): Paper Cost based on Rate Type
+        // Legacy: Lines 16454-16461
         double effectivePaperRate = specificPaperRate > 0 ? specificPaperRate : request.PaperRate;
-        plan.PaperCostTotal = plan.TotalPaperWeightKg * effectivePaperRate;
+        string paperRateType = reel?.EstimationUnit ?? request.PaperRateType;
+
+        if (paperRateType.ToUpper() == "SQM" || paperRateType.ToUpper() == "SQUARE METER")
+        {
+            // SQM-based costing (Legacy: Line 16456)
+            plan.PaperCostTotal = Math.Round(totalSquareMeter * effectivePaperRate, 2);
+        }
+        else if (paperRateType.ToUpper() == "KG")
+        {
+            // KG-based costing (Legacy: Line 16460)
+            plan.PaperCostTotal = Math.Round(plan.TotalPaperWeightKg * effectivePaperRate, 2);
+        }
+        else if (paperRateType.ToUpper() == "RM" || paperRateType.ToUpper() == "RUNNING METER")
+        {
+            // Running Meter-based costing
+            plan.PaperCostTotal = Math.Round(totalMeters * effectivePaperRate, 2);
+        }
+        else
+        {
+            // Default to KG if unknown
+            plan.PaperCostTotal = Math.Round(plan.TotalPaperWeightKg * effectivePaperRate, 2);
+        }
 
         // 5. Machine Run Cost
         if (ratePerRun > 0)

@@ -37,15 +37,24 @@ public class ReelDto
     public long ItemID { get; set; }
     public string ItemCode { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
-    public decimal GSM { get; set; }
+    public string Quality { get; set; } = string.Empty;  // Added from legacy
+    public decimal GSM { get; set; }  // FaceGSM
     public decimal ReleaseGSM { get; set; }
     public decimal AdhesiveGSM { get; set; }
+    public decimal Thickness { get; set; }  // Added from legacy
+    public decimal Density { get; set; }  // Added from legacy
+    public string Manufecturer { get; set; } = string.Empty;  // Added from legacy (Mill)
     public decimal BF { get; set; }
     public decimal PhysicalStock { get; set; }
     public string? StockUnit { get; set; }
     public decimal SizeW { get; set; }
     public decimal EstimationRate { get; set; }
+    public string EstimationUnit { get; set; } = string.Empty;  // CRITICAL: SQM/KG/RM - Rate Type
+    public string Finish { get; set; } = string.Empty;  // Added from legacy
     public decimal AvgRollLength { get; set; } // Legacy: 18 (for Roll Change logic)
+    public string PaperGroup { get; set; } = string.Empty;  // Added from legacy
+    public string ItemGroupName { get; set; } = string.Empty;  // Added from legacy
+    public string PurchaseUnit { get; set; } = string.Empty;  // Added from legacy
 }
 
 /// <summary>

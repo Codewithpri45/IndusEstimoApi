@@ -25,7 +25,8 @@ public class FlexoPlanCalculationRequest
     // Material Selection
     [Required]
     public long PaperId { get; set; } // Gbl_Paper_ID
-    public double PaperRate { get; set; } // Rate per KG/Sheet
+    public double PaperRate { get; set; } // Rate per KG/SQM/RM
+    public string PaperRateType { get; set; } = "KG"; // Estimation_Paper_Rate_Type: KG, SQM, RM (Running Meter)
     public string PaperUnit { get; set; } = "KG"; // Gbl_Estimation_Unit
 
     // Machine Selection

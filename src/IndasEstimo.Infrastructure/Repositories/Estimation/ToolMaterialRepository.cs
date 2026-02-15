@@ -88,18 +88,28 @@ public class ToolMaterialRepository : IToolMaterialRepository
             var upperLimit = reqDeckle + widthPlus;
 
             query = @"
-                SELECT 
+                SELECT DISTINCT
                     IM.ItemID,
                     IM.ItemCode,
                     IM.ItemName,
+                    ISNULL(IM.Quality, '') AS Quality,
                     ISNULL(IM.GSM, 0) AS GSM,
                     ISNULL(IM.ReleaseGSM, 0) AS ReleaseGSM,
                     ISNULL(IM.AdhesiveGSM, 0) AS AdhesiveGSM,
+                    ISNULL(IM.Thickness, 0) AS Thickness,
+                    ISNULL(IM.Density, 0) AS Density,
+                    ISNULL(IM.Manufecturer, '') AS Manufecturer,
                     ISNULL(IM.BF, 0) AS BF,
                     ISNULL(IM.PhysicalStock, 0) AS PhysicalStock,
                     IM.StockUnit,
                     ISNULL(IM.SizeW, 0) AS SizeW,
-                    ISNULL(IM.EstimationRate, 0) AS EstimationRate
+                    ISNULL(IM.EstimationRate, 0) AS EstimationRate,
+                    ISNULL(IM.EstimationUnit, '') AS EstimationUnit,
+                    ISNULL(IM.Finish, '') AS Finish,
+                    ISNULL(IM.AvgRollLength, 0) AS AvgRollLength,
+                    ISNULL(IM.PaperGroup, '') AS PaperGroup,
+                    ISNULL(IG.ItemGroupName, '') AS ItemGroupName,
+                    ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit
                 FROM ItemMaster AS IM
                 INNER JOIN ItemGroupMaster AS IG ON IG.ItemGroupID = IM.ItemGroupID
                 WHERE IG.ItemGroupNameID = @ItemGroupNameID
@@ -121,18 +131,28 @@ public class ToolMaterialRepository : IToolMaterialRepository
         else
         {
             query = @"
-                SELECT 
+                SELECT DISTINCT
                     IM.ItemID,
                     IM.ItemCode,
                     IM.ItemName,
+                    ISNULL(IM.Quality, '') AS Quality,
                     ISNULL(IM.GSM, 0) AS GSM,
                     ISNULL(IM.ReleaseGSM, 0) AS ReleaseGSM,
                     ISNULL(IM.AdhesiveGSM, 0) AS AdhesiveGSM,
+                    ISNULL(IM.Thickness, 0) AS Thickness,
+                    ISNULL(IM.Density, 0) AS Density,
+                    ISNULL(IM.Manufecturer, '') AS Manufecturer,
                     ISNULL(IM.BF, 0) AS BF,
                     ISNULL(IM.PhysicalStock, 0) AS PhysicalStock,
                     IM.StockUnit,
                     ISNULL(IM.SizeW, 0) AS SizeW,
-                    ISNULL(IM.EstimationRate, 0) AS EstimationRate
+                    ISNULL(IM.EstimationRate, 0) AS EstimationRate,
+                    ISNULL(IM.EstimationUnit, '') AS EstimationUnit,
+                    ISNULL(IM.Finish, '') AS Finish,
+                    ISNULL(IM.AvgRollLength, 0) AS AvgRollLength,
+                    ISNULL(IM.PaperGroup, '') AS PaperGroup,
+                    ISNULL(IG.ItemGroupName, '') AS ItemGroupName,
+                    ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit
                 FROM ItemMaster AS IM
                 INNER JOIN ItemGroupMaster AS IG ON IG.ItemGroupID = IM.ItemGroupID
                 WHERE IG.ItemGroupNameID = @ItemGroupNameID
@@ -157,19 +177,30 @@ public class ToolMaterialRepository : IToolMaterialRepository
         var companyId = _currentUserService.GetCompanyId() ?? 0;
 
         string query = @"
-            SELECT 
+            SELECT
                 IM.ItemID,
                 IM.ItemCode,
                 IM.ItemName,
+                ISNULL(IM.Quality, '') AS Quality,
                 ISNULL(IM.GSM, 0) AS GSM,
                 ISNULL(IM.ReleaseGSM, 0) AS ReleaseGSM,
                 ISNULL(IM.AdhesiveGSM, 0) AS AdhesiveGSM,
+                ISNULL(IM.Thickness, 0) AS Thickness,
+                ISNULL(IM.Density, 0) AS Density,
+                ISNULL(IM.Manufecturer, '') AS Manufecturer,
                 ISNULL(IM.BF, 0) AS BF,
                 ISNULL(IM.PhysicalStock, 0) AS PhysicalStock,
                 IM.StockUnit,
                 ISNULL(IM.SizeW, 0) AS SizeW,
-                ISNULL(IM.EstimationRate, 0) AS EstimationRate
+                ISNULL(IM.EstimationRate, 0) AS EstimationRate,
+                ISNULL(IM.EstimationUnit, '') AS EstimationUnit,
+                ISNULL(IM.Finish, '') AS Finish,
+                ISNULL(IM.AvgRollLength, 0) AS AvgRollLength,
+                ISNULL(IM.PaperGroup, '') AS PaperGroup,
+                ISNULL(IG.ItemGroupName, '') AS ItemGroupName,
+                ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit
             FROM ItemMaster AS IM
+            INNER JOIN ItemGroupMaster AS IG ON IG.ItemGroupID = IM.ItemGroupID
             WHERE IM.ItemID = @ItemID
               AND IM.CompanyID = @CompanyID
               AND ISNULL(IM.IsDeletedTransaction, 0) = 0";

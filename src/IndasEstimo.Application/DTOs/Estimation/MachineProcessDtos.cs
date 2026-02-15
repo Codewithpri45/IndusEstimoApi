@@ -21,6 +21,18 @@ public class MachineGridDto
     public decimal Speed { get; set; } // Legacy: 24
     public decimal RollChangeWastage { get; set; } // Legacy: 34
     public decimal StandardRollLength { get; set; } // Legacy: 35
+
+    // Cylinder/Tool Details (Gap #2 - From LEFT JOIN with MachineToolAllocationMaster)
+    // Legacy columns: 38-45 (ToolID, ToolCode, Manufecturer, CylinderWidth, NoOfTeeth, CircumferenceMM, etc.)
+    public long CylinderToolID { get; set; } // Legacy column 38
+    public string CylinderToolCode { get; set; } = string.Empty; // Legacy column 39
+    public string CylinderToolName { get; set; } = string.Empty; // Tool Name
+    public decimal CylinderCircumferenceMM { get; set; } // Legacy column 42
+    public decimal CylinderCircumferenceInch { get; set; } // Legacy column 43
+    public int CylinderNoOfTeeth { get; set; } // Legacy column 41
+    public decimal CylinderWidth { get; set; } // Legacy column 40
+    public decimal MinCircumferenceMM { get; set; } // Legacy column 28
+    public decimal MaxCircumferenceMM { get; set; } // Legacy column 29
 }
 
 /// <summary>

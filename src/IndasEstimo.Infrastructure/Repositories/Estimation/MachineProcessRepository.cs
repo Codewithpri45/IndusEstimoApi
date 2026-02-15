@@ -42,24 +42,55 @@ public class MachineProcessRepository : IMachineProcessRepository
         using var connection = GetConnection();
         var companyId = _currentUserService.GetCompanyId() ?? 0;
 
+        // CRITICAL FIX (Gap #1): LEFT JOIN with MachineToolAllocationMaster to get ALL cylinders per machine
+        // Legacy: Api_shiring_serviceController.cs Line 277 (Flexo_Roll_Planning query)
+        // This returns MULTIPLE ROWS per machine (one per allocated cylinder)
         string query = @"
-            SELECT 
-                MachineID,
-                MachineName,
-                MachineType,
-                ISNULL(Colors, 0) AS MachineColors,
-                ISNULL(MaxLength, 0) AS MaxSheetL,
-                CASE WHEN ISNULL(MaxRollWidth, 0) > 0 THEN MaxRollWidth ELSE ISNULL(MaxWidth, 0) END AS MaxSheetW,
-                ISNULL(MinLength, 0) AS MinSheetL,
-                CASE WHEN ISNULL(MinRollWidth, 0) > 0 THEN MinRollWidth ELSE ISNULL(MinWidth, 0) END AS MinSheetW,
-                ISNULL(PerHourCost, 0) AS PerHourRate,
-                '' AS PaperGroup
-            FROM MachineMaster
-            WHERE CompanyID = @CompanyID
-              AND ISNULL(IsDeletedTransaction, 0) = 0
-              AND CurrentStatus = 'ACTIVE'
-              AND MachineType = @ContentDomainType
-            ORDER BY MachineName";
+            SELECT
+                MM.MachineID,
+                MM.MachineName,
+                MM.MachineType,
+                ISNULL(MM.Colors, 0) AS MachineColors,
+                ISNULL(MM.MaxLength, 0) AS MaxSheetL,
+                CASE WHEN ISNULL(MM.MaxRollWidth, 0) > 0 THEN MM.MaxRollWidth ELSE ISNULL(MM.MaxWidth, 0) END AS MaxSheetW,
+                ISNULL(MM.MinLength, 0) AS MinSheetL,
+                CASE WHEN ISNULL(MM.MinRollWidth, 0) > 0 THEN MM.MinRollWidth ELSE ISNULL(MM.MinWidth, 0) END AS MinSheetW,
+                ISNULL(MM.PerHourCost, 0) AS PerHourRate,
+                '' AS PaperGroup,
+                ISNULL(MM.MakeReadyTime, 0) AS MakeReadyTime,
+                ISNULL(MM.JobChangeOverTime, 0) AS JobChangeOverTime,
+                ISNULL(MM.RollChangeTime, 0) AS RollChangeOverTime,
+                ISNULL(MM.MachineSpeed, 0) AS Speed,
+                ISNULL(MM.AverageRollChangeWastage, 0) AS RollChangeWastage,
+                ISNULL(MM.AverageRollLength, 0) AS StandardRollLength,
+                ISNULL(MM.MinCircumference, 0) AS MinCircumferenceMM,
+                ISNULL(MM.MaxCircumference, 0) AS MaxCircumferenceMM,
+                -- Cylinder Details from LEFT JOIN
+                ISNULL(TM.ToolID, 0) AS CylinderToolID,
+                ISNULL(TM.ToolCode, '') AS CylinderToolCode,
+                ISNULL(TM.ToolName, '') AS CylinderToolName,
+                ISNULL(TM.CircumferenceMM, 0) AS CylinderCircumferenceMM,
+                ISNULL(TM.CircumferenceInch, 0) AS CylinderCircumferenceInch,
+                ISNULL(TM.NoOfTeeth, 0) AS CylinderNoOfTeeth,
+                ISNULL(TM.SizeW, 0) AS CylinderWidth
+            FROM MachineMaster AS MM
+            LEFT JOIN MachineToolAllocationMaster AS MTM
+                ON MTM.MachineID = MM.MachineID
+                AND MTM.CompanyID = MM.CompanyID
+                AND MTM.ToolGroupID IN (
+                    SELECT ToolGroupID
+                    FROM ToolGroupMaster
+                    WHERE ToolGroupNameID = -5
+                      AND CompanyID = @CompanyID
+                )
+            LEFT JOIN ToolMaster AS TM
+                ON TM.ToolID = MTM.ToolID
+                AND TM.CompanyID = MTM.CompanyID
+            WHERE MM.CompanyID = @CompanyID
+              AND ISNULL(MM.IsDeletedTransaction, 0) = 0
+              AND MM.CurrentStatus = 'ACTIVE'
+              AND MM.MachineType = @ContentDomainType
+            ORDER BY MM.MachineName, TM.ToolID";
 
         var results = await connection.QueryAsync<MachineGridDto>(query, 
             new { CompanyID = companyId, ContentDomainType = contentDomainType });

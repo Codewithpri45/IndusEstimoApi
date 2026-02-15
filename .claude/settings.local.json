@@ -20,7 +20,8 @@
       "Bash(powershell Stop-Process -Id 37776 -Force)",
       "Bash(powershell Stop-Process -Name \"IndusMonarch.Api\" -Force)",
       "Bash(powershell Stop-Process -Id 37900 -Force)",
-      "Bash(powershell Stop-Process -Name \"IndasEstimo.Api\" -Force)"
+      "Bash(powershell Stop-Process -Name \"IndasEstimo.Api\" -Force)",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []
