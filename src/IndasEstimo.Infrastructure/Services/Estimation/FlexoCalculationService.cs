@@ -197,34 +197,59 @@ public class FlexoCalculationService : IFlexoCalculationService
         }
 
         int upsAcross = CalculateUpsAcross(request.JobSizeW, request.GapAcross, rollWidthEffective, request.UpsAcross);
-        
+
         if (upsAcross > 0)
         {
             _logger.LogInformation($"Plan Found on Roll! UpsAcross={upsAcross}");
-            
-            double usedWidth = (upsAcross * request.JobSizeW) + ((upsAcross - 1) * request.GapAcross);
+
+            // CRITICAL FIX: Calculate AcrossGap based on actual layout
+            // If only 1 label across, no gap needed
+            double calculatedAcrossGap = upsAcross > 1 ? request.GapAcross : 0;
+            double usedWidth = (upsAcross * request.JobSizeW) + ((upsAcross - 1) * calculatedAcrossGap);
+
+            // CRITICAL FIX: Calculate UpsAround and AroundGap from Cylinder Circumference
+            // Legacy: Lines where UpsAround is calculated from cylinder, not per meter
+            double cylinderCirc = (double)machine.CylinderCircumferenceMM;
+            int calculatedUpsAround = 1; // Default
+            double calculatedAroundGap = request.GapAround; // Fallback
+
+            if (cylinderCirc > 0 && request.JobSizeH > 0)
+            {
+                // Calculate maximum labels that fit around cylinder with minimum gap
+                calculatedUpsAround = (int)Math.Floor(cylinderCirc / (request.JobSizeH + request.GapAround));
+
+                // Ensure at least 1 label fits
+                if (calculatedUpsAround < 1) calculatedUpsAround = 1;
+
+                // Recalculate actual gap to distribute labels evenly around cylinder
+                calculatedAroundGap = (cylinderCirc / calculatedUpsAround) - request.JobSizeH;
+
+                _logger.LogInformation($"[Cylinder Layout] Circumference={cylinderCirc}mm, UpsAround={calculatedUpsAround}, Calculated AroundGap={calculatedAroundGap:F2}mm");
+            }
 
             var plan = new FlexoPlanResult
             {
                 PaperId = reel.ItemID,
                 PaperName = reel.ItemName,
                 PaperWidth = (double)reel.SizeW,
+                PaperLength = 0, // Will be set in CalculateCosting as TotalRunningMeter
                 UpsAcross = upsAcross,
-                UpsAround = (int)Math.Floor(1000 / (request.JobSizeH + request.GapAround)), // Standard Rows per Meter logic for Flexo Roll
+                UpsAround = calculatedUpsAround, // FIX: Use cylinder-based calculation
                 CutSizeW = usedWidth,
+                CutSizeH = request.JobSizeH + calculatedAroundGap, // Repeat length
                 MachineName = machine.MachineName ?? string.Empty,
 
                 // CRITICAL FIX (Gap #4): Populate Cylinder Details from machine-cylinder combo
                 // Legacy: Lines 16771+ (CylinderToolID, CylinderCircumferenceMM, etc.)
-                CylinderCircumference = (double)machine.CylinderCircumferenceMM,
+                CylinderCircumference = cylinderCirc,
                 CylinderTeeth = machine.CylinderNoOfTeeth,
                 ToolDescription = machine.CylinderToolID > 0
                     ? $"{machine.CylinderToolCode} (Circ: {machine.CylinderCircumferenceMM}mm, Teeth: {machine.CylinderNoOfTeeth})"
                     : string.Empty,
 
-                // Gap #8: Gap & Wastage Strip
-                AcrossGap = request.GapAcross,
-                AroundGap = request.GapAround,
+                // Gap #8: Gap & Wastage Strip - FIX: Use calculated gaps
+                AcrossGap = calculatedAcrossGap,
+                AroundGap = calculatedAroundGap,
                 WastageStrip = (double)reel.SizeW - usedWidth,
 
                 // Gap #10: Paper Breakdown
@@ -343,8 +368,8 @@ public class FlexoCalculationService : IFlexoCalculationService
     }
 
     private void CalculateCosting(
-        FlexoPlanResult plan, 
-        FlexoPlanCalculationRequest request, 
+        FlexoPlanResult plan,
+        FlexoPlanCalculationRequest request,
         MachineGridDto machine,
         List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto> slabs,
         ReelDto? reel,
@@ -352,38 +377,62 @@ public class FlexoCalculationService : IFlexoCalculationService
         double gsm,
         double specificPaperRate = 0)
     {
-        double totalUps = plan.UpsAcross; // * UpsAround (UpsAround is traditionally 1 for Flexo roll planning context here)
+        // FIX: TotalUps should include both Across and Around
+        int totalUps = plan.UpsAcross * plan.UpsAround;
+        plan.TotalUps = totalUps;
+
         if (totalUps == 0) return;
 
-        // 1. Calculate Required Running Meters
+        // 1. Calculate Required Running Meters - FIX: Use plan's AroundGap (calculated from cylinder)
         double reqRunningMeters = 0;
-        
+
         if (request.Orientation == "PrePlannedSheetLabel")
         {
-             double labelsPerMeter = (1000 / request.JobSizeH) * plan.UpsAcross; 
+             double labelsPerMeter = (1000 / request.JobSizeH) * plan.UpsAcross;
              if (labelsPerMeter > 0) reqRunningMeters = request.Quantity / labelsPerMeter;
         }
         else
         {
-            double repeat = request.JobSizeH + request.GapAround;
+            // FIX: Use calculated AroundGap from plan, not request
+            double repeat = request.JobSizeH + plan.AroundGap;
             if (repeat <= 0) repeat = 1;
+
+            // Labels per meter: (meters_to_labels_around) * labels_across
             double labelsPerMeter = (1000 / repeat) * plan.UpsAcross;
             if (labelsPerMeter > 0) reqRunningMeters = request.Quantity / labelsPerMeter;
+
+            _logger.LogInformation($"[Costing] Repeat={repeat:F2}mm, LabelsPerMeter={labelsPerMeter:F2}, ReqMeters={reqRunningMeters:F2}");
         }
 
         // 2. Wastage Parameters & Slab Selection
-        decimal ratePerRun = 0; 
+        decimal ratePerRun = 0;
         double slabPlateCharges = 0;
         double makeReadyWastage = 50; // Fallback
 
         // Find Slab based on Job Metrics
+        _logger.LogInformation($"[Slab Lookup] ReqMeters={reqRunningMeters:F2}, Available Slabs={slabs.Count}");
+
         var slab = slabs.FirstOrDefault(s => reqRunningMeters >= (double)s.RunningMeterRangeFrom && reqRunningMeters <= (double)s.RunningMeterRangeTo);
 
         if (slab != null)
         {
-            makeReadyWastage = (double)slab.Wastage; 
+            makeReadyWastage = (double)slab.Wastage;
             ratePerRun = slab.Rate;
             slabPlateCharges = (double)slab.PlateCharges;
+
+            _logger.LogInformation($"[Slab Found] Range={slab.RunningMeterRangeFrom}-{slab.RunningMeterRangeTo}, Wastage={makeReadyWastage}m, Rate={ratePerRun}");
+        }
+        else
+        {
+            _logger.LogWarning($"[Slab NOT Found] Using fallback wastage={makeReadyWastage}m. ReqMeters={reqRunningMeters:F2}");
+
+            if (slabs.Count > 0)
+            {
+                foreach (var s in slabs.Take(3))
+                {
+                    _logger.LogInformation($"  - Available Slab: Range={s.RunningMeterRangeFrom}-{s.RunningMeterRangeTo}");
+                }
+            }
         }
 
         // 3. Detailed Wastage Calculation
@@ -465,6 +514,7 @@ public class FlexoCalculationService : IFlexoCalculationService
         // Populate Square Meter fields (Gap #7)
         plan.RequiredRunningMeter = reqRunningMeters;
         plan.TotalRunningMeter = totalMeters;
+        plan.PaperLength = totalMeters; // Set PaperLength to total running meters
         plan.RequiredSquareMeter = reqSquareMeter;
         plan.TotalSquareMeter = totalSquareMeter;
         plan.WastageSquareMeter = wastageSquareMeter;
@@ -544,21 +594,65 @@ public class FlexoCalculationService : IFlexoCalculationService
 
         foreach (var op in request.AdditionalOperations)
         {
-            double opCost = CalculateOperationCost(op, request.Quantity, plan.TotalPaperWeightKg, plan.TotalQuantity, totalRolls); 
+            double opCost = CalculateOperationCost(op, request.Quantity, plan.TotalPaperWeightKg, plan.TotalQuantity, totalRolls);
             additionalOpsTotal += opCost;
         }
-        plan.ConversionCostTotal = additionalOpsTotal; 
+        plan.ConversionCostTotal = additionalOpsTotal;
 
-        // 8. Total Summary
-        plan.TotalCost = plan.PaperCostTotal + plan.MachineRunCostTotal + plan.PlateCostTotal + plan.ConversionCostTotal;
-        
+        // FIX: Calculate MaterialCostTotal (Coating, Inks, Chemicals)
+        double materialCost = 0;
+
+        // Coating Cost
+        if (!string.IsNullOrEmpty(request.CoatingType) && request.CoatingType != "None" && request.CoatingRate > 0)
+        {
+            // Apply coating rate to total square meters
+            materialCost += totalSquareMeter * request.CoatingRate;
+            _logger.LogInformation($"[Costing] Coating: {request.CoatingType}, Rate={request.CoatingRate}, SQM={totalSquareMeter:F2}, Cost={materialCost:F2}");
+        }
+
+        plan.MaterialCostTotal = Math.Round(materialCost, 2);
+
+        // FIX: Calculate WastageCostTotal based on wastage paper cost
+        double wastageKg = ((wastageRunningMeters + processWastageMeters + totalRollChangeWastage) * plan.PaperWidth * usedGsm) / 1000000;
+        plan.TotalWastageKg = Math.Round(wastageKg, 2);
+
+        // Wastage cost using same paper rate logic
+        double wastageCost = 0;
+        if (paperRateType.ToUpper() == "SQM" || paperRateType.ToUpper() == "SQUARE METER")
+        {
+            wastageCost = wastageSquareMeter * effectivePaperRate;
+        }
+        else if (paperRateType.ToUpper() == "KG")
+        {
+            wastageCost = wastageKg * effectivePaperRate;
+        }
+        else if (paperRateType.ToUpper() == "RM" || paperRateType.ToUpper() == "RUNNING METER")
+        {
+            wastageCost = (wastageRunningMeters + processWastageMeters + totalRollChangeWastage) * effectivePaperRate;
+        }
+        plan.WastageCostTotal = Math.Round(wastageCost, 2);
+
+        // 8. Total Summary - FIX: Include MaterialCostTotal and WastageCostTotal
+        plan.TotalCost = plan.PaperCostTotal + plan.MachineRunCostTotal + plan.PlateCostTotal + plan.MaterialCostTotal + plan.ConversionCostTotal + plan.WastageCostTotal;
+
         // Populate Detailed Breakdown for Transparency
         plan.MakeReadyWastageMeters = makeReadyWastage;
         plan.ProcessWastageMeters = processWastageMeters;
+        plan.ProcessWastagePercent = processWastageMeters > 0 && reqRunningMeters > 0 ? Math.Round((processWastageMeters / reqRunningMeters) * 100, 2) : 0;
         plan.RollChangeWastageMeters = totalRollChangeWastage;
-        
+
+        // 9. Calculate Per-1000 Costs (for display in UI grids)
         if (request.Quantity > 0)
         {
+            double quantityInThousands = request.Quantity / 1000.0;
+
+            plan.PaperCostPer1000 = quantityInThousands > 0 ? Math.Round(plan.PaperCostTotal / quantityInThousands, 2) : 0;
+            plan.MachineRunCostPer1000 = quantityInThousands > 0 ? Math.Round(plan.MachineRunCostTotal / quantityInThousands, 2) : 0;
+            plan.PlateCostPer1000 = quantityInThousands > 0 ? Math.Round(plan.PlateCostTotal / quantityInThousands, 2) : 0;
+            plan.MaterialCostPer1000 = quantityInThousands > 0 ? Math.Round(plan.MaterialCostTotal / quantityInThousands, 2) : 0;
+            plan.ConversionCostPer1000 = quantityInThousands > 0 ? Math.Round(plan.ConversionCostTotal / quantityInThousands, 2) : 0;
+            plan.WastageCostPer1000 = quantityInThousands > 0 ? Math.Round(plan.WastageCostTotal / quantityInThousands, 2) : 0;
+
             plan.UnitPrice = plan.TotalCost / request.Quantity;
             plan.UnitPrice1000 = plan.UnitPrice * 1000;
         }
