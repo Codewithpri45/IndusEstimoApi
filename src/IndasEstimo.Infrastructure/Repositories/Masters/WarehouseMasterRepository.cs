@@ -338,7 +338,7 @@ public class WarehouseMasterRepository : IWarehouseMasterRepository
         return result.ToList();
     }
 
-    public async Task<List<WarehouseBinDto>> GetBinNameAsync(string warehouseName)
+    public async Task<WarehouseBinDto?> GetBinNameAsync(string warehouseName)
     {
         using var connection = GetConnection();
 
@@ -350,11 +350,11 @@ public class WarehouseMasterRepository : IWarehouseMasterRepository
             WHERE WarehouseName = @WarehouseName
               AND ISNULL(IsDeletedTransaction, 0) <> 1";
 
-        var result = await connection.QueryAsync<WarehouseBinDto>(
+        var result = await connection.QueryFirstOrDefaultAsync<WarehouseBinDto>(
             sql,
             new { WarehouseName = warehouseName });
 
-        return result.ToList();
+        return result;
     }
 
     public async Task<string> DeleteWarehouseAsync(string warehouseId)
