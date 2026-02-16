@@ -313,7 +313,7 @@ public class WarehouseMasterRepository : IWarehouseMasterRepository
         }
 
         var sql = $@"
-            SELECT DISTINCT
+            SELECT
                 BM.BranchName,
                 BM.BranchID,
                 WM.RefWarehouseCode,
@@ -332,13 +332,13 @@ public class WarehouseMasterRepository : IWarehouseMasterRepository
             WHERE WM.ProductionUnitID IN ({productionUnitIdStr})
               AND ISNULL(WM.IsDeletedTransaction, 0) = 0
               {productionUnitFilter}
-            ORDER BY WM.ModifiedDate DESC";
+            ORDER BY WM.WarehouseID DESC";
 
         var result = await connection.QueryAsync<WarehouseListDto>(sql);
         return result.ToList();
     }
 
-    public async Task<WarehouseBinDto?> GetBinNameAsync(string warehouseName)
+    public async Task<List<WarehouseBinDto>> GetBinNameAsync(string warehouseName)
     {
         using var connection = GetConnection();
 
@@ -350,11 +350,11 @@ public class WarehouseMasterRepository : IWarehouseMasterRepository
             WHERE WarehouseName = @WarehouseName
               AND ISNULL(IsDeletedTransaction, 0) <> 1";
 
-        var result = await connection.QueryFirstOrDefaultAsync<WarehouseBinDto>(
+        var result = await connection.QueryAsync<WarehouseBinDto>(
             sql,
             new { WarehouseName = warehouseName });
 
-        return result;
+        return result.ToList();
     }
 
     public async Task<string> DeleteWarehouseAsync(string warehouseId)

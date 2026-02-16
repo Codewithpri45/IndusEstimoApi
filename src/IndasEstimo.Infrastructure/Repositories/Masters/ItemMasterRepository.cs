@@ -58,7 +58,8 @@ public class ItemMasterRepository : IItemMasterRepository
                 AND UMA.CompanyID = IGM.CompanyID
                 AND UMA.CanView = 1
             WHERE IGM.IsDeletedTransaction = 0
-                AND UMA.UserID = @UserID
+            AND IGM.IsActive = 1
+            AND UMA.UserID = @UserID
             ORDER BY IGM.ItemGroupID";
 
         var result = await connection.QueryAsync<MasterListDto>(sql, new { UserID = userId });
@@ -492,6 +493,89 @@ public class ItemMasterRepository : IItemMasterRepository
 
             await connection.ExecuteAsync(updateSql, parameters, transaction);
 
+            // Also update ItemMasterDetails for each field
+            var fieldsSql = @"
+                SELECT ItemGroupFieldID, FieldName
+                FROM ItemGroupFieldMaster
+                WHERE ItemGroupID = @ItemGroupID
+                AND ISNULL(IsDeletedTransaction, 0) <> 1";
+
+            var fields = (await connection.QueryAsync<dynamic>(
+                fieldsSql, new { ItemGroupID = request.UnderGroupID }, transaction)).ToList();
+
+            foreach (var field in fields)
+            {
+                string fieldName = field.FieldName;
+                string fieldId = field.ItemGroupFieldID.ToString();
+
+                if (itemMasterData.TryGetValue(fieldName, out var rawValue))
+                {
+                    var fieldValue = ConvertJsonElement(rawValue)?.ToString() ?? "";
+
+                    // Check if row exists in ItemMasterDetails
+                    var existsSql = @"
+                        SELECT COUNT(1) FROM ItemMasterDetails
+                        WHERE ItemID = @ItemID AND ItemGroupID = @ItemGroupID
+                        AND FieldName = @FieldName
+                        AND ISNULL(IsDeletedTransaction, 0) <> 1";
+
+                    var rowExists = await connection.ExecuteScalarAsync<int>(existsSql, new
+                    {
+                        ItemID = request.ItemID,
+                        ItemGroupID = request.UnderGroupID,
+                        FieldName = fieldName
+                    }, transaction);
+
+                    if (rowExists > 0)
+                    {
+                        // Update existing row
+                        var updateDetailSql = @"
+                            UPDATE ItemMasterDetails
+                            SET FieldValue = @FieldValue,
+                                ModifiedBy = @UserID,
+                                ModifiedDate = GETDATE()
+                            WHERE ItemID = @ItemID
+                            AND ItemGroupID = @ItemGroupID
+                            AND FieldName = @FieldName
+                            AND ISNULL(IsDeletedTransaction, 0) <> 1";
+
+                        await connection.ExecuteAsync(updateDetailSql, new
+                        {
+                            FieldValue = fieldValue,
+                            UserID = userId,
+                            ItemID = request.ItemID,
+                            ItemGroupID = request.UnderGroupID,
+                            FieldName = fieldName
+                        }, transaction);
+                    }
+                    else
+                    {
+                        // Insert new row
+                        var insertDetailSql = @"
+                            INSERT INTO ItemMasterDetails
+                                (ItemID, ItemGroupID, FieldID, FieldName, FieldValue,
+                                 CompanyID, UserID, FYear, CreatedBy, CreatedDate)
+                            VALUES
+                                (@ItemID, @ItemGroupID, @FieldID, @FieldName, @FieldValue,
+                                 @CompanyID, @UserID, @FYear, @CreatedBy, GETDATE())";
+
+                        var fYear = _currentUserService.GetFYear() ?? "";
+                        await connection.ExecuteAsync(insertDetailSql, new
+                        {
+                            ItemID = request.ItemID,
+                            ItemGroupID = request.UnderGroupID,
+                            FieldID = fieldId,
+                            FieldName = fieldName,
+                            FieldValue = fieldValue,
+                            CompanyID = companyId,
+                            UserID = userId,
+                            FYear = fYear,
+                            CreatedBy = userId
+                        }, transaction);
+                    }
+                }
+            }
+
             await transaction.CommitAsync();
             return "Success";
         }
@@ -707,52 +791,95 @@ public class ItemMasterRepository : IItemMasterRepository
             if (string.IsNullOrEmpty(fieldId) || string.IsNullOrEmpty(fieldName))
                 continue;
 
-            // Get dynamic query for this field
+            // Get dynamic query AND default values for this field
             var querySql = @"
-                SELECT NULLIF(SelectboxQueryDB, '') as SelectboxQueryDB
+                SELECT NULLIF(SelectboxQueryDB, '') as SelectboxQueryDB,
+                       NULLIF(SelectBoxDefault, '') as SelectBoxDefault
                 FROM ItemGroupFieldMaster
                 WHERE ItemGroupFieldID = @FieldID
                 AND ISNULL(IsDeletedTransaction, 0) <> 1";
 
-            var query = await connection.QueryFirstOrDefaultAsync<string>(
+            var fieldConfig = await connection.QueryFirstOrDefaultAsync<dynamic>(
                 querySql, new { FieldID = fieldId });
 
-            if (string.IsNullOrEmpty(query))
+            if (fieldConfig == null)
                 continue;
 
-            // Replace # with '
-            query = query.Replace("#", "'");
+            string? query = fieldConfig.SelectboxQueryDB;
+            string? defaults = fieldConfig.SelectBoxDefault;
 
-            // Handle MySQL CALL syntax
-            if (query.ToUpper().Contains("CALL "))
+            // Collect all dropdown values
+            var allValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // 1. Add SelectBoxDefault values (comma-separated like "SQM,KG")
+            if (!string.IsNullOrEmpty(defaults))
             {
-                query = query + ");";
+                foreach (var val in defaults.Split(','))
+                {
+                    var trimmed = val.Trim();
+                    if (!string.IsNullOrEmpty(trimmed))
+                        allValues.Add(trimmed);
+                }
             }
 
-            try
+            // 2. Execute dynamic query if available and merge results
+            if (!string.IsNullOrEmpty(query))
             {
-                // Execute dynamic dropdown query
-                var data = await connection.QueryAsync<dynamic>(query);
-                var dataList = data.ToList();
+                query = query.Replace("#", "'");
 
-                // Add field name as first row if 2 columns (preserve legacy logic)
-                if (dataList.Count > 0)
+                if (query.ToUpper().Contains("CALL "))
                 {
-                    var firstItem = (IDictionary<string, object>)dataList[0];
-                    if (firstItem.Count == 2)
-                    {
-                        var dynamicItem = new System.Dynamic.ExpandoObject() as IDictionary<string, object>;
-                        dynamicItem[firstItem.Keys.ElementAt(0)] = firstItem.Values.ElementAt(0);
-                        dynamicItem[firstItem.Keys.ElementAt(1)] = fieldName;
-                        dataList.Insert(0, dynamicItem);
-                    }
+                    query = query + ");";
                 }
 
-                dataset.Add($"tbl_{fieldName}", dataList);
+                try
+                {
+                    var data = await connection.QueryAsync<dynamic>(query);
+                    var dataList = data.ToList();
+
+                    if (dataList.Count > 0)
+                    {
+                        var firstItem = (IDictionary<string, object>)dataList[0];
+                        
+                        if (firstItem.Count == 2)
+                        {
+                            // Legacy format: 2 columns — add field name as first row
+                            var dynamicItem = new System.Dynamic.ExpandoObject() as IDictionary<string, object>;
+                            dynamicItem[firstItem.Keys.ElementAt(0)] = firstItem.Values.ElementAt(0);
+                            dynamicItem[firstItem.Keys.ElementAt(1)] = fieldName;
+                            dataList.Insert(0, dynamicItem);
+                        }
+
+                        // Merge dynamic values into allValues
+                        foreach (var row in dataList)
+                        {
+                            var dict = (IDictionary<string, object>)row;
+                            foreach (var val in dict.Values)
+                            {
+                                var strVal = val?.ToString();
+                                if (!string.IsNullOrEmpty(strVal) && strVal != fieldName)
+                                    allValues.Add(strVal);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error executing selectbox query for field {FieldName}", fieldName);
+                }
             }
-            catch (Exception ex)
+
+            // Build result list — simple single-column format with field values
+            if (allValues.Count > 0)
             {
-                _logger.LogError(ex, "Error executing selectbox query for field {FieldName}", fieldName);
+                var resultList = new List<dynamic>();
+                foreach (var val in allValues.OrderBy(v => v))
+                {
+                    var item = new System.Dynamic.ExpandoObject() as IDictionary<string, object>;
+                    item[fieldName] = val;
+                    resultList.Add(item);
+                }
+                dataset.Add($"tbl_{fieldName}", resultList);
             }
         }
 

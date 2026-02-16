@@ -98,7 +98,6 @@ public class MasterDataRepository : IMasterDataRepository
     {
         using var connection = GetConnection();
         var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var userId = _currentUserService.GetUserId() ?? 0;
 
         string query = @"
             SELECT ISNULL(NULLIF(REPLACE(LM.LedgerName, '""', ''), ''), '') AS LedgerName,
@@ -110,15 +109,9 @@ public class MasterDataRepository : IMasterDataRepository
               AND ISNULL(LM.IsDeletedTransaction, 0) <> 1
               AND LM.CompanyID = @CompanyID
               AND ISNULL(LM.LedgerName, '') <> ''
-              AND LM.RefSalesRepresentativeID IN (
-                  SELECT OperatorID 
-                  FROM UserOperatorAllocation 
-                  WHERE UserID = @UserID 
-                    AND ISNULL(IsDeletedTransaction, 0) = 0
-              )
             ORDER BY LM.LedgerName";
 
-        var results = await connection.QueryAsync<ClientDto>(query, new { CompanyID = companyId, UserID = userId });
+        var results = await connection.QueryAsync<ClientDto>(query, new { CompanyID = companyId });
         return results.ToList();
     }
 
@@ -126,10 +119,9 @@ public class MasterDataRepository : IMasterDataRepository
     {
         using var connection = GetConnection();
         var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var userId = _currentUserService.GetUserId() ?? 0;
 
         string query = @"
-            SELECT DISTINCT 
+            SELECT DISTINCT
                 LM.LedgerID AS EmployeeID,
                 NULLIF(REPLACE(LM.LedgerName, '""', ''), '') AS EmployeeName
             FROM LedgerMaster AS LM
@@ -138,15 +130,9 @@ public class MasterDataRepository : IMasterDataRepository
             WHERE LG.LedgerGroupNameID = 27
               AND LM.DepartmentID = -50
               AND ISNULL(LM.IsDeletedTransaction, 0) <> 1
-              AND LM.LedgerID IN (
-                  SELECT OperatorID 
-                  FROM UserOperatorAllocation 
-                  WHERE UserID = @UserID 
-                    AND ISNULL(IsDeletedTransaction, 0) = 0
-              )
             ORDER BY EmployeeName";
 
-        var results = await connection.QueryAsync<SalesPersonDto>(query, new { UserID = userId });
+        var results = await connection.QueryAsync<SalesPersonDto>(query);
         return results.ToList();
     }
 

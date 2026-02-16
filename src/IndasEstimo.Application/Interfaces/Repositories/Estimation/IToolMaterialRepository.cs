@@ -8,7 +8,7 @@ namespace IndasEstimo.Application.Interfaces.Repositories.Estimation;
 public interface IToolMaterialRepository
 {
     Task<List<DieToolDto>> SearchDiesAsync(SearchDiesRequest request);
-    Task<List<ReelDto>> GetReelsAsync(decimal reqDeckle, decimal widthPlus, decimal widthMinus, int itemGroupId = -2);
+    Task<List<ReelDto>> GetReelsAsync(decimal reqDeckle, decimal widthPlus, decimal widthMinus, int itemGroupId = -2, string quality = "", double gsm = 0, string mill = "");
     Task<ReelDto?> GetReelByIdAsync(long itemId);
     Task<List<ProcessMaterialDto>> GetProcessMaterialsAsync(string processIds);
     Task<DieToolDto?> GetToolByIdAsync(long toolId);

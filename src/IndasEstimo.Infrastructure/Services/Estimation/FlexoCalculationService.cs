@@ -124,8 +124,10 @@ public class FlexoCalculationService : IFlexoCalculationService
                         // Strategy B: No Reel Selected -> Suggest Options
 
                         // B1. Find from Standard Reels (PlanOnRoll)
+                        // Apply Quality, GSM, Mill filters (matching legacy: Api_shiring_serviceController.cs line 200)
                         var foundReels = await _materialRepository.GetReelsAsync(
-                            machineWithCylinder.MinSheetW ?? 0, 5000, 0, -14);
+                            machineWithCylinder.MinSheetW ?? 0, 5000, 0, -14,
+                            request.PaperQuality, request.PaperGSM, request.PaperMill);
 
                         foreach (var reel in foundReels)
                         {
@@ -160,7 +162,9 @@ public class FlexoCalculationService : IFlexoCalculationService
 
     private async Task PlanOnRoll(FlexoPlanCalculationRequest request, MachineGridDto machine, ReelDto reel, List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto> slabs, List<FlexoPlanResult> plans, string grainDirection = "With Grain")
     {
-        double rollWidthEffective = (double)reel.SizeW - ((PlateBearer * 2) + (ColorStrip * 2) + StandardGap);
+        // Use request values instead of hardcoded constants (user can change Bearer & Gap during planning)
+        double plateBearer = request.PlateBearer > 0 ? request.PlateBearer : PlateBearer; // Default to 15 if not provided
+        double rollWidthEffective = (double)reel.SizeW - ((plateBearer * 2) + (ColorStrip * 2) + request.GapAcross);
         double machineMin = (double)(machine.MinSheetW ?? 0);
         double machineMax = (double)(machine.MaxSheetW ?? 0);
         double realWidth = (double)reel.SizeW;
@@ -313,14 +317,16 @@ public class FlexoCalculationService : IFlexoCalculationService
     }
 
     private async Task PlanOnCylinder(
-        FlexoPlanCalculationRequest request, 
-        MachineGridDto machine, 
-        List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto> slabs, 
+        FlexoPlanCalculationRequest request,
+        MachineGridDto machine,
+        List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto> slabs,
         List<FlexoPlanResult> plans,
         ReelDto? specificReel = null)
     {
+        // Use request values instead of hardcoded constants
+        double plateBearer = request.PlateBearer > 0 ? request.PlateBearer : PlateBearer;
         double machineMaxRoll = (double)(machine.MaxSheetW ?? 0);
-        double maxUsableCheck = machineMaxRoll - ((PlateBearer * 2) + (ColorStrip * 2)); 
+        double maxUsableCheck = machineMaxRoll - ((plateBearer * 2) + (ColorStrip * 2)); 
 
         int maxUpsW = (int)Math.Floor(maxUsableCheck / request.JobSizeW); 
         

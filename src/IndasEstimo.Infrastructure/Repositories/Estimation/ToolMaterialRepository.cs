@@ -75,10 +75,25 @@ public class ToolMaterialRepository : IToolMaterialRepository
         return results.ToList();
     }
 
-    public async Task<List<ReelDto>> GetReelsAsync(decimal reqDeckle, decimal widthPlus, decimal widthMinus, int itemGroupId = -2)
+    public async Task<List<ReelDto>> GetReelsAsync(decimal reqDeckle, decimal widthPlus, decimal widthMinus, int itemGroupId = -2, string quality = "", double gsm = 0, string mill = "")
     {
         using var connection = GetConnection();
         var companyId = _currentUserService.GetCompanyId() ?? 0;
+
+        // Build quality filter (matching legacy logic from Api_shiring_serviceController.cs line 200)
+        var qualityFilter = "";
+        if (!string.IsNullOrEmpty(quality))
+        {
+            qualityFilter += " AND IM.Quality = @Quality";
+        }
+        if (gsm > 0)
+        {
+            qualityFilter += " AND IM.GSM = @GSM";
+        }
+        if (!string.IsNullOrEmpty(mill))
+        {
+            qualityFilter += " AND IM.Manufecturer = @Mill";
+        }
 
         string query;
 
@@ -116,7 +131,8 @@ public class ToolMaterialRepository : IToolMaterialRepository
                   AND IM.CompanyID = @CompanyID
                   AND IM.SizeW >= @LowerLimit
                   AND IM.SizeW <= @UpperLimit
-                  AND ISNULL(IM.IsDeletedTransaction, 0) = 0
+                  AND ISNULL(IM.IsDeletedTransaction, 0) = 0"
+                  + qualityFilter + @"
                 ORDER BY IM.ItemCode";
 
             var results = await connection.QueryAsync<ReelDto>(query, new
@@ -124,7 +140,10 @@ public class ToolMaterialRepository : IToolMaterialRepository
                 CompanyID = companyId,
                 ItemGroupNameID = itemGroupId,
                 LowerLimit = lowerLimit,
-                UpperLimit = upperLimit
+                UpperLimit = upperLimit,
+                Quality = quality,
+                GSM = gsm,
+                Mill = mill
             });
             return results.ToList();
         }
@@ -158,14 +177,18 @@ public class ToolMaterialRepository : IToolMaterialRepository
                 WHERE IG.ItemGroupNameID = @ItemGroupNameID
                   AND IM.CompanyID = @CompanyID
                   AND IM.SizeW >= @ReqDeckle
-                  AND ISNULL(IM.IsDeletedTransaction, 0) = 0
+                  AND ISNULL(IM.IsDeletedTransaction, 0) = 0"
+                  + qualityFilter + @"
                 ORDER BY IM.ItemCode";
 
             var results = await connection.QueryAsync<ReelDto>(query, new
             {
                 CompanyID = companyId,
                 ItemGroupNameID = itemGroupId,
-                ReqDeckle = reqDeckle
+                ReqDeckle = reqDeckle,
+                Quality = quality,
+                GSM = gsm,
+                Mill = mill
             });
             return results.ToList();
         }

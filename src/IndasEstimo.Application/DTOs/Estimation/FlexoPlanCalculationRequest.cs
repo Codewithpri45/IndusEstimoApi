@@ -25,6 +25,9 @@ public class FlexoPlanCalculationRequest
     // Material Selection
     [Required]
     public long PaperId { get; set; } // Gbl_Paper_ID
+    public string PaperQuality { get; set; } = string.Empty; // Gbl_Paper_Quality (for filtering when PaperId = 0)
+    public double PaperGSM { get; set; } // Gbl_Paper_GSM (for filtering when PaperId = 0)
+    public string PaperMill { get; set; } = string.Empty; // Gbl_Paper_Mill/Manufecturer (for filtering when PaperId = 0)
     public double PaperRate { get; set; } // Rate per KG/SQM/RM
     public string PaperRateType { get; set; } = "KG"; // Estimation_Paper_Rate_Type: KG, SQM, RM (Running Meter)
     public string PaperUnit { get; set; } = "KG"; // Gbl_Estimation_Unit
@@ -65,6 +68,18 @@ public class FlexoPlanCalculationRequest
     public string WastageType { get; set; } = "Machine Default"; // Machine Default, Percentage, Flat
     public double FlatWastageValue { get; set; } // Percentage or Flat Meters
     public long CategoryId { get; set; } // Category for wastage calculation
+
+    // Grain Direction & Planning Options (NEWLY ADDED - Feb 16, 2026)
+    public string GrainDirection { get; set; } = "Both"; // With Grain, Across Grain, Both (PlanPrintingGrain)
+    public bool PlanInAvailableStock { get; set; } // ChkPlanInAvailableStock
+    public bool PlanInSpecialSizePaper { get; set; } // Check_Plan_In_Special_Size
+    public bool PlanInStandardSizePaper { get; set; } // Check_Plan_In_Standard_Size
+    public bool PaperSuppliedByClient { get; set; } // CheckPaperByClient
+    public bool BackToBackPastingRequired { get; set; } // ChkBackToBackPastingRequired
+
+    // Plate & Layout Details (NEWLY ADDED - Feb 16, 2026)
+    public double PlateBearer { get; set; } // PlanPlateBearer (Gbl_Plate_Bearer) - User can change during planning
+    public double MakeReadyWastage { get; set; } // PlanMakeReadyWastage (in meters)
 }
 
 public class OperationCostDto
