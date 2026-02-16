@@ -100,7 +100,7 @@ public class LedgerMasterRepository : ILedgerMasterRepository
         string executeSql;
         if (queryConfig.ToUpper().Contains("EXECUTE"))
         {
-            executeSql = queryConfig + " '', " + companyId + ", " + masterID;
+            executeSql = queryConfig + " @TblName='', @LedgerGroupID=" + masterID + ", @CompanyID=" + companyId;
         }
         else
         {
@@ -111,11 +111,17 @@ public class LedgerMasterRepository : ILedgerMasterRepository
 
         try
         {
-            // Execute and return dynamic results
+            // Execute and return dynamic results, filter out soft-deleted items
             var result = await connection.QueryAsync<dynamic>(executeSql);
-            var resultList = result.ToList();
-            _logger.LogDebug("GetMasterGridAsync - Returned {Count} rows", resultList.Count);
-            return resultList;
+            return result.Where(r =>
+            {
+                var dict = (IDictionary<string, object>)r;
+                if (dict.TryGetValue("IsDeletedTransaction", out var val))
+                {
+                    return Convert.ToInt32(val ?? 0) == 0;
+                }
+                return true;
+            }).ToList();
         }
         catch (Exception ex)
         {
@@ -158,8 +164,6 @@ public class LedgerMasterRepository : ILedgerMasterRepository
 
     public async Task<List<LedgerMasterFieldDto>> GetMasterFieldsAsync(string masterID)
     {
-        using var connection = GetConnection();
-
         var sql = @"
             SELECT
                 NULLIF(LedgerGroupFieldID,'') as LedgerGroupFieldID,
@@ -191,8 +195,21 @@ public class LedgerMasterRepository : ILedgerMasterRepository
             AND ISNULL(IsDeletedTransaction, 0) <> 1
             ORDER BY FieldDrawSequence";
 
-        var result = await connection.QueryAsync<LedgerMasterFieldDto>(sql, new { MasterID = masterID });
-        return result.ToList();
+        // Try tenant DB first, fall back to master DB if empty
+        using (var tenantConnection = GetConnection())
+        {
+            var result = await tenantConnection.QueryAsync<LedgerMasterFieldDto>(sql, new { MasterID = masterID });
+            var list = result.ToList();
+            if (list.Count > 0)
+                return list;
+        }
+
+        // LedgerGroupFieldMaster may be in master DB (IndusEnterpriseMonarch)
+        using (var masterConnection = _connectionFactory.CreateMasterConnection())
+        {
+            var result = await masterConnection.QueryAsync<LedgerMasterFieldDto>(sql, new { MasterID = masterID });
+            return result.ToList();
+        }
     }
 
     public async Task<object> GetLoadedDataAsync(string masterID, string ledgerID)
@@ -329,7 +346,7 @@ public class LedgerMasterRepository : ILedgerMasterRepository
                 new { LedgerCodePrefix = ledgerCodePrefix, request.LedgerGroupID },
                 transaction);
 
-            var ledgerCode = $"{ledgerCodePrefix}{maxLedgerNo}";
+            var ledgerCode = $"{ledgerCodePrefix}{maxLedgerNo.ToString().PadLeft(5, '0')}";
 
             // Get valid columns from table schema
             var validColumns = await GetTableColumnsAsync(connection, transaction, "LedgerMaster");
@@ -362,7 +379,8 @@ public class LedgerMasterRepository : ILedgerMasterRepository
             int paramIndex = 0;
             foreach (var kvp in ledgerMasterData)
             {
-                if (validColumns.Contains(kvp.Key))
+                if (validColumns.Contains(kvp.Key) &&
+                    !columns.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase))
                 {
                     columns.Add(kvp.Key);
                     var paramName = $"@param{paramIndex}";
@@ -412,7 +430,8 @@ public class LedgerMasterRepository : ILedgerMasterRepository
                 int detailParamIndex = 0;
                 foreach (var kvp in detailRow)
                 {
-                    if (detailValidColumns.Contains(kvp.Key))
+                    if (detailValidColumns.Contains(kvp.Key) &&
+                        !detailColumns.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase))
                     {
                         detailColumns.Add(kvp.Key);
                         var paramName = $"@dparam{detailParamIndex}";
@@ -585,7 +604,8 @@ public class LedgerMasterRepository : ILedgerMasterRepository
                     int di = 0;
                     foreach (var kvp in row)
                     {
-                        if (validDetailColumns.Contains(kvp.Key))
+                        if (validDetailColumns.Contains(kvp.Key) &&
+                            !cols.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase))
                         {
                             cols.Add(kvp.Key);
                             vals.Add($"@d{di}");
