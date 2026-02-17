@@ -262,23 +262,47 @@ public class FlexoCalculationService : IFlexoCalculationService
             double usedWidth = (upsAcross * request.JobSizeW) + ((upsAcross - 1) * calculatedAcrossGap);
 
             // CRITICAL FIX: Calculate UpsAround and AroundGap from Cylinder Circumference
-            // Legacy: Lines where UpsAround is calculated from cylinder, not per meter
+            // Legacy: Lines 14896-14914 (Flexo-specific gap calculation)
             double cylinderCirc = (double)machine.CylinderCircumferenceMM;
             int calculatedUpsAround = 1; // Default
             double calculatedAroundGap = request.GapAround; // Fallback
 
             if (cylinderCirc > 0 && request.JobSizeH > 0)
             {
-                // Calculate maximum labels that fit around cylinder with minimum gap
-                calculatedUpsAround = (int)Math.Floor(cylinderCirc / (request.JobSizeH + request.GapAround));
+                // STEP 1: Calculate UPS Around with initial gap
+                double labelSizeWithGap = request.JobSizeH + request.GapAround;
+                calculatedUpsAround = (int)Math.Floor(cylinderCirc / labelSizeWithGap);
 
                 // Ensure at least 1 label fits
                 if (calculatedUpsAround < 1) calculatedUpsAround = 1;
 
-                // Recalculate actual gap to distribute labels evenly around cylinder
-                calculatedAroundGap = (cylinderCirc / calculatedUpsAround) - request.JobSizeH;
+                // STEP 2: Apply gap > 1mm validation (Legacy Lines 14906-14914)
+                if (request.GapAround == 0)
+                {
+                    // User didn't provide gap - calculate waste strip and apply only if > 1mm
+                    double wasteStrip = Math.Round(cylinderCirc - (calculatedUpsAround * request.JobSizeH), 2);
 
-                _logger.LogInformation($"[Cylinder Layout] Circumference={cylinderCirc}mm, UpsAround={calculatedUpsAround}, Calculated AroundGap={calculatedAroundGap:F2}mm");
+                    if (wasteStrip > 1)
+                    {
+                        // Waste > 1mm: distribute evenly as gap
+                        calculatedAroundGap = Math.Round(wasteStrip / calculatedUpsAround, 2);
+                        _logger.LogInformation($"[Gap Auto-Calc] Waste={wasteStrip:F2}mm > 1mm, Applied Gap={calculatedAroundGap:F2}mm");
+                    }
+                    else
+                    {
+                        // Waste <= 1mm: keep gap as 0
+                        calculatedAroundGap = 0;
+                        _logger.LogInformation($"[Gap Auto-Calc] Waste={wasteStrip:F2}mm <= 1mm, Gap kept at 0");
+                    }
+                }
+                else
+                {
+                    // User provided gap - always apply it
+                    calculatedAroundGap = Math.Round((cylinderCirc - (calculatedUpsAround * request.JobSizeH)) / calculatedUpsAround, 2);
+                    _logger.LogInformation($"[Gap User-Provided] Using calculated gap={calculatedAroundGap:F2}mm");
+                }
+
+                _logger.LogInformation($"[Cylinder Layout] Circumference={cylinderCirc}mm, UpsAround={calculatedUpsAround}, Final AroundGap={calculatedAroundGap:F2}mm");
             }
 
             var plan = new FlexoPlanResult
@@ -343,26 +367,33 @@ public class FlexoCalculationService : IFlexoCalculationService
 
         if (labelSizeWithGap <= 0) return 0;
 
+        // Branch A: When only 1 label with gap fits (Legacy Lines 15190-15197)
         if (Math.Floor((effectiveWidth + StandardGap) / labelSizeWithGap) == 1)
         {
+             // Try to fit more labels WITHOUT gap
              if (jobSize <= (effectiveWidth + StandardGap))
              {
                  ups = (int)Math.Floor((effectiveWidth + StandardGap) / jobSize);
              }
         }
-        else if (labelSizeWithGap <= effectiveWidth)
+        else
         {
+             // Branch B: Multiple labels fit OR no labels fit (Legacy Lines 15208-15218)
              ups = (int)Math.Floor((effectiveWidth + StandardGap) / labelSizeWithGap);
-             
-             int nextUps = ups + 1;
-             double requiredWidth = (nextUps * jobSize) + ((nextUps - 1) * gap);
-             
-             if ((effectiveWidth + StandardGap) >= requiredWidth)
+
+             // CRITICAL: Try to fit ONE MORE UPS (Legacy optimization)
+             if (ups >= 1)
              {
-                 ups = nextUps;
+                 int nextUps = ups + 1;
+                 double requiredWidth = (nextUps * jobSize) + (ups * gap);
+
+                 if ((effectiveWidth + StandardGap) >= requiredWidth)
+                 {
+                     ups = nextUps;
+                 }
              }
         }
-        
+
         return ups;
     }
 
@@ -439,25 +470,34 @@ public class FlexoCalculationService : IFlexoCalculationService
 
         if (totalUps == 0) return;
 
-        // 1. Calculate Required Running Meters - FIX: Use plan's AroundGap (calculated from cylinder)
+        // 1. CRITICAL FIX: Calculate Impressions FIRST (not running meters)
+        // Legacy Line 15709: Printing_Impressions = Math.Ceiling((Gbl_Order_Quantity / Total_Ups))
+        double printingImpressions = Math.Ceiling((double)request.Quantity / totalUps);
+
+        // 2. Calculate Final Quantity (Legacy Line 15702)
+        // FinalQuantityInPcs = Val(Printing_Impressions) * Val(Total_Ups)
+        double finalQuantityInPcs = printingImpressions * totalUps;
+
+        // 3. Calculate Required Running Meters (Legacy Lines 15717-15722)
+        // Req_Running_Mtr = Math.Round((Gbl_Label_L_With_Around * (FinalQuantityInPcs / Gbl_UPS_H)) / 1000, 3)
         double reqRunningMeters = 0;
 
         if (request.Orientation == "PrePlannedSheetLabel")
         {
              double labelsPerMeter = (1000 / request.JobSizeH) * plan.UpsAcross;
-             if (labelsPerMeter > 0) reqRunningMeters = request.Quantity / labelsPerMeter;
+             if (labelsPerMeter > 0) reqRunningMeters = finalQuantityInPcs / labelsPerMeter;
         }
         else
         {
-            // FIX: Use calculated AroundGap from plan, not request
-            double repeat = request.JobSizeH + plan.AroundGap;
-            if (repeat <= 0) repeat = 1;
+            // FLEXO FORMULA: Req_Running_Mtr = (Label_L_With_Around × (Final_Quantity / UPS_Across)) / 1000
+            double labelSizeWithAroundGap = request.JobSizeH + plan.AroundGap; // Label_L_With_Around
 
-            // Labels per meter: (meters_to_labels_around) * labels_across
-            double labelsPerMeter = (1000 / repeat) * plan.UpsAcross;
-            if (labelsPerMeter > 0) reqRunningMeters = request.Quantity / labelsPerMeter;
+            if (plan.UpsAcross > 0)
+            {
+                reqRunningMeters = Math.Round((labelSizeWithAroundGap * (finalQuantityInPcs / plan.UpsAcross)) / 1000, 3);
+            }
 
-            _logger.LogInformation($"[Costing] Repeat={repeat:F2}mm, LabelsPerMeter={labelsPerMeter:F2}, ReqMeters={reqRunningMeters:F2}");
+            _logger.LogInformation($"[Costing] Impressions={printingImpressions}, FinalQty={finalQuantityInPcs}, Label+Gap={labelSizeWithAroundGap:F2}mm, ReqMeters={reqRunningMeters:F3}");
         }
 
         // 2. Wastage Parameters & Slab Selection
@@ -565,7 +605,10 @@ public class FlexoCalculationService : IFlexoCalculationService
             ((request.JobSizeH / 1000.0) * (request.JobSizeW / 1000.0) * request.Quantity);
 
         plan.TotalPaperWeightKg = (totalMeters * plan.PaperWidth * usedGsm) / 1000000;
-        plan.TotalQuantity = request.Quantity;
+
+        // CRITICAL FIX: Use finalQuantityInPcs (Impressions × Total_UPS), not original order quantity
+        // Legacy Line 15702: FinalQuantityInPcs = Val(Printing_Impressions) * Val(Total_Ups)
+        plan.TotalQuantity = finalQuantityInPcs;
 
         // Populate Square Meter fields (Gap #7)
         plan.RequiredRunningMeter = reqRunningMeters;
@@ -576,20 +619,10 @@ public class FlexoCalculationService : IFlexoCalculationService
         plan.WastageSquareMeter = wastageSquareMeter;
         plan.ScrapSquareMeter = scrapSquareMeter;
 
-        // Gap #11: Printing Impressions Calculation
-        // For Flexo: 1 impression = 1 cylinder rotation = cylinder circumference in meters
-        double repeatLength = request.JobSizeH + request.GapAround; // mm
-        if (repeatLength > 0)
-        {
-            // Total impressions = total meters / repeat length (in meters)
-            plan.PrintingImpressions = Math.Round((totalMeters * 1000) / repeatLength, 0);
-            plan.ImpressionsToBeCharged = Math.Round((reqRunningMeters * 1000) / repeatLength, 0);
-        }
-        else
-        {
-            plan.PrintingImpressions = 0;
-            plan.ImpressionsToBeCharged = 0;
-        }
+        // Gap #11: Populate Printing Impressions (already calculated at beginning)
+        // Legacy Line 15709: Printing_Impressions = Math.Ceiling((Gbl_Order_Quantity / Total_Ups))
+        plan.PrintingImpressions = printingImpressions;
+        plan.ImpressionsToBeCharged = printingImpressions;
 
         // CRITICAL FIX (Gap #6): Calculate paper rate type and effective rate (needed for both paper cost and wastage cost)
         // Legacy: Lines 16454-16461
