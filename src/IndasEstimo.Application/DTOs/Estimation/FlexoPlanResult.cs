@@ -22,8 +22,8 @@ public class FlexoPlanResult
     public string GrainDirection { get; set; } = string.Empty; // Gap #9: "With Grain" or "Across Grain"
 
     // Layout
-    public int UpsAcross { get; set; } // Gbl_UPS_L
-    public int UpsAround { get; set; } // Gbl_UPS_H (per Cylinder)
+    public int UpsAcross { get; set; } // Gbl_UPS_H - Across roll width (uses JobSizeH dimension)
+    public int UpsAround { get; set; } // Gbl_UPS_L - Around cylinder (uses JobSizeL dimension)
     public int TotalUps { get; set; } // UpsAcross * UpsAround
     public double CylinderCircumference { get; set; } // Crucial for Flexo
     public int CylinderTeeth { get; set; }

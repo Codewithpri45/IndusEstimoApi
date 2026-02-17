@@ -89,16 +89,21 @@ public class FlexoCalculationService : IFlexoCalculationService
                 // FIX: Grain Direction Filter (Gap #5)
                 // Legacy: Line 2530-2551 - respects user's grain direction choice
                 // Only calculate requested grain direction(s)
-                List<(string Direction, double JobSizeW, double JobSizeH)> grainDirections = new();
+                // Legacy Line 2839-2845: Grain direction swaps Rect_H and Rect_L
+                // Rect_H (→ UPS across roll width), Rect_L (→ UPS around cylinder)
+                // "With Grain": Rect_H=Job_H, Rect_L=Job_L (no swap)
+                // "Across Grain": Rect_H=Job_L, Rect_L=Job_H (swap H and L)
+                List<(string Direction, double JobSizeW, double JobSizeH, double JobSizeL)> grainDirections = new();
 
                 if (request.GrainDirection == "Both" || request.GrainDirection == "With Grain")
                 {
-                    grainDirections.Add(("With Grain", request.JobSizeW, request.JobSizeH));
+                    grainDirections.Add(("With Grain", request.JobSizeW, request.JobSizeH, request.JobSizeL));
                 }
 
                 if (request.GrainDirection == "Both" || request.GrainDirection == "Across Grain")
                 {
-                    grainDirections.Add(("Across Grain", request.JobSizeH, request.JobSizeW));
+                    // CRITICAL: Swap H and L for "Across Grain" (Legacy Lines 2839-2845)
+                    grainDirections.Add(("Across Grain", request.JobSizeW, request.JobSizeL, request.JobSizeH));
                 }
 
                 _logger.LogInformation($"[Grain Direction] User selected: {request.GrainDirection}, calculating {grainDirections.Count} grain variation(s)");
@@ -108,9 +113,9 @@ public class FlexoCalculationService : IFlexoCalculationService
                     // Create modified request with swapped dimensions for grain direction
                     var modifiedRequest = new FlexoPlanCalculationRequest
                     {
-                        JobSizeL = request.JobSizeL,
+                        JobSizeL = grainVariation.JobSizeL, // Swapped for "Across Grain"
                         JobSizeW = grainVariation.JobSizeW,
-                        JobSizeH = grainVariation.JobSizeH,
+                        JobSizeH = grainVariation.JobSizeH, // Swapped for "Across Grain"
                         UpsAcross = request.UpsAcross,
                         UpsAround = request.UpsAround,
                         GapAcross = request.GapAcross,
@@ -233,7 +238,7 @@ public class FlexoCalculationService : IFlexoCalculationService
              var cylinder = await _materialRepository.GetToolByIdAsync(request.CylinderId.Value);
              if (cylinder != null && cylinder.CircumferenceMM > 0)
              {
-                 double jobRepeat = request.JobSizeH + request.GapAround;
+                 double jobRepeat = request.JobSizeL + request.GapAround; // Legacy: Gbl_Label_L goes around cylinder
                  double remainder = (double)cylinder.CircumferenceMM % jobRepeat;
                  
                  // Allow small tolerance
@@ -250,7 +255,9 @@ public class FlexoCalculationService : IFlexoCalculationService
              categoryWastageSettings = await _machineRepository.GetCategoryWastageSettingsAsync(request.CategoryId);
         }
 
-        int upsAcross = CalculateUpsAcross(request.JobSizeW, request.GapAcross, rollWidthEffective, request.UpsAcross);
+        // CRITICAL FIX: Use JobSizeH (height) for UPS across roll width
+        // Legacy Line 15208: Gbl_UPS_H = RoundDown((Roll_Width + Gap) / Gbl_Label_H_With_Across)
+        int upsAcross = CalculateUpsAcross(request.JobSizeH, request.GapAcross, rollWidthEffective, request.UpsAcross);
 
         if (upsAcross > 0)
         {
@@ -259,7 +266,7 @@ public class FlexoCalculationService : IFlexoCalculationService
             // CRITICAL FIX: Calculate AcrossGap based on actual layout
             // If only 1 label across, no gap needed
             double calculatedAcrossGap = upsAcross > 1 ? request.GapAcross : 0;
-            double usedWidth = (upsAcross * request.JobSizeW) + ((upsAcross - 1) * calculatedAcrossGap);
+            double usedWidth = (upsAcross * request.JobSizeH) + ((upsAcross - 1) * calculatedAcrossGap);
 
             // CRITICAL FIX: Calculate UpsAround and AroundGap from Cylinder Circumference
             // Legacy: Lines 14896-14914 (Flexo-specific gap calculation)
@@ -267,10 +274,12 @@ public class FlexoCalculationService : IFlexoCalculationService
             int calculatedUpsAround = 1; // Default
             double calculatedAroundGap = request.GapAround; // Fallback
 
-            if (cylinderCirc > 0 && request.JobSizeH > 0)
+            // CRITICAL FIX: Use JobSizeL (length) for UPS around cylinder
+            // Legacy Line 14904: Gbl_UPS_L = RoundDown(Cylinder_Circumference / Gbl_Label_L_With_Around)
+            if (cylinderCirc > 0 && request.JobSizeL > 0)
             {
                 // STEP 1: Calculate UPS Around with initial gap
-                double labelSizeWithGap = request.JobSizeH + request.GapAround;
+                double labelSizeWithGap = request.JobSizeL + request.GapAround;
                 calculatedUpsAround = (int)Math.Floor(cylinderCirc / labelSizeWithGap);
 
                 // Ensure at least 1 label fits
@@ -280,7 +289,7 @@ public class FlexoCalculationService : IFlexoCalculationService
                 if (request.GapAround == 0)
                 {
                     // User didn't provide gap - calculate waste strip and apply only if > 1mm
-                    double wasteStrip = Math.Round(cylinderCirc - (calculatedUpsAround * request.JobSizeH), 2);
+                    double wasteStrip = Math.Round(cylinderCirc - (calculatedUpsAround * request.JobSizeL), 2);
 
                     if (wasteStrip > 1)
                     {
@@ -298,7 +307,7 @@ public class FlexoCalculationService : IFlexoCalculationService
                 else
                 {
                     // User provided gap - always apply it
-                    calculatedAroundGap = Math.Round((cylinderCirc - (calculatedUpsAround * request.JobSizeH)) / calculatedUpsAround, 2);
+                    calculatedAroundGap = Math.Round((cylinderCirc - (calculatedUpsAround * request.JobSizeL)) / calculatedUpsAround, 2);
                     _logger.LogInformation($"[Gap User-Provided] Using calculated gap={calculatedAroundGap:F2}mm");
                 }
 
@@ -314,7 +323,7 @@ public class FlexoCalculationService : IFlexoCalculationService
                 UpsAcross = upsAcross,
                 UpsAround = calculatedUpsAround, // FIX: Use cylinder-based calculation
                 CutSizeW = usedWidth,
-                CutSizeH = request.JobSizeH + calculatedAroundGap, // Repeat length
+                CutSizeH = request.JobSizeL + calculatedAroundGap, // Repeat length (Label_L_With_Around)
                 MachineName = machine.MachineName ?? string.Empty,
 
                 // CRITICAL FIX (Gap #4): Populate Cylinder Details from machine-cylinder combo
@@ -409,7 +418,8 @@ public class FlexoCalculationService : IFlexoCalculationService
         double machineMaxRoll = (double)(machine.MaxSheetW ?? 0);
         double maxUsableCheck = machineMaxRoll - ((plateBearer * 2) + (ColorStrip * 2)); 
 
-        int maxUpsW = (int)Math.Floor(maxUsableCheck / request.JobSizeW); 
+        // CRITICAL FIX: Use JobSizeH (height goes across roll width, like legacy Gbl_Label_H)
+        int maxUpsW = (int)Math.Floor(maxUsableCheck / request.JobSizeH);
         
         // GSM from specific reel or default
         double gsm = (specificReel != null) ? (double)specificReel.GSM : 0;
@@ -432,7 +442,7 @@ public class FlexoCalculationService : IFlexoCalculationService
 
         for (int i = maxUpsW; i >= 1; i--)
         {
-            double requiredWidth = (i * request.JobSizeW) + ((i - 1) * request.GapAcross) + (PlateBearer * 2) + (ColorStrip * 2);
+            double requiredWidth = (i * request.JobSizeH) + ((i - 1) * request.GapAcross) + (PlateBearer * 2) + (ColorStrip * 2);
             
             if (requiredWidth >= (double)(machine.MinSheetW ?? 0) && requiredWidth <= machineMaxRoll)
             {
@@ -443,7 +453,7 @@ public class FlexoCalculationService : IFlexoCalculationService
                      PaperWidth = requiredWidth,
                      UpsAcross = i,
                      UpsAround = 0, 
-                     CutSizeW = (i * request.JobSizeW) + ((i - 1) * request.GapAcross),
+                     CutSizeW = (i * request.JobSizeH) + ((i - 1) * request.GapAcross),
                      MachineName = machine.MachineName ?? string.Empty,
                      ToolDescription = toolDesc
                  };
@@ -484,13 +494,14 @@ public class FlexoCalculationService : IFlexoCalculationService
 
         if (request.Orientation == "PrePlannedSheetLabel")
         {
-             double labelsPerMeter = (1000 / request.JobSizeH) * plan.UpsAcross;
+             double labelsPerMeter = (1000 / request.JobSizeL) * plan.UpsAcross; // Legacy: Label_L goes around cylinder
              if (labelsPerMeter > 0) reqRunningMeters = finalQuantityInPcs / labelsPerMeter;
         }
         else
         {
             // FLEXO FORMULA: Req_Running_Mtr = (Label_L_With_Around × (Final_Quantity / UPS_Across)) / 1000
-            double labelSizeWithAroundGap = request.JobSizeH + plan.AroundGap; // Label_L_With_Around
+            // Legacy Line 15721: Uses Gbl_Label_L_With_Around (length + around gap)
+            double labelSizeWithAroundGap = request.JobSizeL + plan.AroundGap; // Label_L_With_Around
 
             if (plan.UpsAcross > 0)
             {
@@ -601,8 +612,9 @@ public class FlexoCalculationService : IFlexoCalculationService
         double reqSquareMeter = (plan.PaperWidth / 1000.0) * reqRunningMeters;
         double wastageSquareMeter = (plan.PaperWidth / 1000.0) * wastageRunningMeters;
         double totalSquareMeter = (plan.PaperWidth / 1000.0) * totalMeters;
+        // Label area = H (across) × L (around) - the two label dimensions
         double scrapSquareMeter = totalSquareMeter -
-            ((request.JobSizeH / 1000.0) * (request.JobSizeW / 1000.0) * request.Quantity);
+            ((request.JobSizeH / 1000.0) * (request.JobSizeL / 1000.0) * request.Quantity);
 
         plan.TotalPaperWeightKg = (totalMeters * plan.PaperWidth * usedGsm) / 1000000;
 

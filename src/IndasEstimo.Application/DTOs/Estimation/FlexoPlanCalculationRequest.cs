@@ -16,8 +16,8 @@ public class FlexoPlanCalculationRequest
     public double JobSizeH { get; set; } // Often unused for flat labels but kept for boxes
 
     // Layout Constraints
-    public int UpsAcross { get; set; } // Gbl_UPS_L
-    public int UpsAround { get; set; } // Gbl_UPS_H
+    public int UpsAcross { get; set; } // Gbl_UPS_H (across roll width, uses JobSizeH)
+    public int UpsAround { get; set; } // Gbl_UPS_L (around cylinder, uses JobSizeL)
     public double GapAcross { get; set; } = 3.0; // Gbl_Standard_AC_Gap (default 3mm)
     public double GapAround { get; set; } = 1.25; // Gbl_Standard_AR_Gap (default 1.25mm)
     public double Bleed { get; set; } // Gbl_Bleed
