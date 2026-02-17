@@ -42,13 +42,35 @@ public class FlexoCalculationService : IFlexoCalculationService
             // With LEFT JOIN, machineGrid contains MULTIPLE rows per machine (one per cylinder)
             var machineGrid = await _machineRepository.GetMachineGridAsync("FLEXO");
 
-            // Filter by requested MachineID - this returns ALL cylinders for that machine
-            var machineCylinderCombos = machineGrid
-                .Where(m => m.MachineID == request.MachineId)
+            // FIX: Machine selection is OPTIONAL (Legacy: Line 1140-1147)
+            // If MachineId == 0 (no machine selected), plan on ALL machines with cylinders
+            var machineCylinderCombos = request.MachineId > 0
+                ? machineGrid.Where(m => m.MachineID == request.MachineId).ToList()
+                : machineGrid.ToList(); // ALL machines
+
+            if (machineCylinderCombos.Count == 0)
+            {
+                string errorMsg = request.MachineId > 0
+                    ? $"Machine ID {request.MachineId} not found."
+                    : "No Flexo machines found in database.";
+                return Result<List<FlexoPlanResult>>.Failure(errorMsg);
+            }
+
+            // FIX: Cylinder Validation - Skip machines without cylinder allocation
+            // Legacy: Line 15377-15408 - validates Tool_Cylinder_Circumference_MM > 0
+            machineCylinderCombos = machineCylinderCombos
+                .Where(m => m.CylinderToolID != null && m.CylinderToolID > 0 && m.CylinderCircumferenceMM > 0)
                 .ToList();
 
             if (machineCylinderCombos.Count == 0)
-                return Result<List<FlexoPlanResult>>.Failure($"Machine ID {request.MachineId} not found.");
+            {
+                string errorMsg = request.MachineId > 0
+                    ? $"Machine ID {request.MachineId} does not have any printing cylinders allocated."
+                    : "No Flexo machines with printing cylinder allocation found.";
+                return Result<List<FlexoPlanResult>>.Failure(errorMsg);
+            }
+
+            _logger.LogInformation($"[Planning] Found {machineCylinderCombos.Count} machine-cylinder combinations to evaluate.");
 
             var machineSlabs = await _machineRepository.GetMachineSlabsAsync(request.MachineId);
 
@@ -64,13 +86,22 @@ public class FlexoCalculationService : IFlexoCalculationService
             // LOOP THROUGH EACH MACHINE-CYLINDER COMBINATION (Legacy: for i = 0 to Gbl_DT_Machine.Rows.Count - 1)
             foreach (var machineWithCylinder in machineCylinderCombos)
             {
-                // Gap #5: Grain Direction Variations - Legacy calls calculation twice (With Grain & Across Grain)
-                // Legacy: Lines where dimensions are swapped for grain direction trials
-                var grainDirections = new[]
+                // FIX: Grain Direction Filter (Gap #5)
+                // Legacy: Line 2530-2551 - respects user's grain direction choice
+                // Only calculate requested grain direction(s)
+                List<(string Direction, double JobSizeW, double JobSizeH)> grainDirections = new();
+
+                if (request.GrainDirection == "Both" || request.GrainDirection == "With Grain")
                 {
-                    new { Direction = "With Grain", JobSizeW = request.JobSizeW, JobSizeH = request.JobSizeH },
-                    new { Direction = "Across Grain", JobSizeW = request.JobSizeH, JobSizeH = request.JobSizeW }
-                };
+                    grainDirections.Add(("With Grain", request.JobSizeW, request.JobSizeH));
+                }
+
+                if (request.GrainDirection == "Both" || request.GrainDirection == "Across Grain")
+                {
+                    grainDirections.Add(("Across Grain", request.JobSizeH, request.JobSizeW));
+                }
+
+                _logger.LogInformation($"[Grain Direction] User selected: {request.GrainDirection}, calculating {grainDirections.Count} grain variation(s)");
 
                 foreach (var grainVariation in grainDirections)
                 {
@@ -129,14 +160,33 @@ public class FlexoCalculationService : IFlexoCalculationService
                             machineWithCylinder.MinSheetW ?? 0, 5000, 0, -14,
                             request.PaperQuality, request.PaperGSM, request.PaperMill);
 
+                        // FIX: Planning Options - Filter reels based on user selections
+                        // Legacy: Line 433-439, 613-634
+                        if (request.PlanInAvailableStock)
+                        {
+                            // Filter to only papers with available stock
+                            foundReels = foundReels.Where(r => r.StockQuantity > 0 || r.IsAvailable).ToList();
+                            _logger.LogInformation($"[Planning Option] Plan in available stock: Filtered to {foundReels.Count} in-stock reels");
+                        }
+
+                        if (request.PlanInStandardSizePaper)
+                        {
+                            // Filter to only standard size papers
+                            foundReels = foundReels.Where(r => r.IsStandardItem).ToList();
+                            _logger.LogInformation($"[Planning Option] Plan in standard size: Filtered to {foundReels.Count} standard reels");
+                        }
+
+                        // Process each filtered reel
                         foreach (var reel in foundReels)
                         {
                             await PlanOnRoll(modifiedRequest, machineWithCylinder, reel, machineSlabs, plans, grainVariation.Direction);
                         }
 
-                        // B2. If Cylinder Selected, ALSO Suggest Optimal Special Sizes
-                        if (request.CylinderId > 0)
+                        // B2. Special Size Planning (PlanOnCylinder)
+                        // Legacy: Line 619-634 - adds special size row when Check_Plan_In_Special_Size is true
+                        if (request.PlanInSpecialSizePaper || request.CylinderId > 0)
                         {
+                            _logger.LogInformation($"[Planning Option] Plan in special size: Generating custom size options");
                             await PlanOnCylinder(modifiedRequest, machineWithCylinder, machineSlabs, plans, null);
                         }
                     }
@@ -541,30 +591,43 @@ public class FlexoCalculationService : IFlexoCalculationService
             plan.ImpressionsToBeCharged = 0;
         }
 
-        // CRITICAL FIX (Gap #6): Paper Cost based on Rate Type
+        // CRITICAL FIX (Gap #6): Calculate paper rate type and effective rate (needed for both paper cost and wastage cost)
         // Legacy: Lines 16454-16461
         double effectivePaperRate = specificPaperRate > 0 ? specificPaperRate : request.PaperRate;
         string paperRateType = reel?.EstimationUnit ?? request.PaperRateType;
 
-        if (paperRateType.ToUpper() == "SQM" || paperRateType.ToUpper() == "SQUARE METER")
+        // FIX: Planning Option - Paper Supplied by Client
+        // If client is supplying paper, exclude paper cost from calculation
+        if (request.PaperSuppliedByClient)
         {
-            // SQM-based costing (Legacy: Line 16456)
-            plan.PaperCostTotal = Math.Round(totalSquareMeter * effectivePaperRate, 2);
-        }
-        else if (paperRateType.ToUpper() == "KG")
-        {
-            // KG-based costing (Legacy: Line 16460)
-            plan.PaperCostTotal = Math.Round(plan.TotalPaperWeightKg * effectivePaperRate, 2);
-        }
-        else if (paperRateType.ToUpper() == "RM" || paperRateType.ToUpper() == "RUNNING METER")
-        {
-            // Running Meter-based costing
-            plan.PaperCostTotal = Math.Round(totalMeters * effectivePaperRate, 2);
+            plan.PaperCostTotal = 0;
+            plan.PaperCostPer1000 = 0;
+            _logger.LogInformation($"[Planning Option] Paper supplied by client: Paper cost = 0");
         }
         else
         {
-            // Default to KG if unknown
-            plan.PaperCostTotal = Math.Round(plan.TotalPaperWeightKg * effectivePaperRate, 2);
+            // Calculate paper cost based on rate type
+
+            if (paperRateType.ToUpper() == "SQM" || paperRateType.ToUpper() == "SQUARE METER")
+            {
+                // SQM-based costing (Legacy: Line 16456)
+                plan.PaperCostTotal = Math.Round(totalSquareMeter * effectivePaperRate, 2);
+            }
+            else if (paperRateType.ToUpper() == "KG")
+            {
+                // KG-based costing (Legacy: Line 16460)
+                plan.PaperCostTotal = Math.Round(plan.TotalPaperWeightKg * effectivePaperRate, 2);
+            }
+            else if (paperRateType.ToUpper() == "RM" || paperRateType.ToUpper() == "RUNNING METER")
+            {
+                // Running Meter-based costing
+                plan.PaperCostTotal = Math.Round(totalMeters * effectivePaperRate, 2);
+            }
+            else
+            {
+                // Default to KG if unknown
+                plan.PaperCostTotal = Math.Round(plan.TotalPaperWeightKg * effectivePaperRate, 2);
+            }
         }
 
         // 5. Machine Run Cost

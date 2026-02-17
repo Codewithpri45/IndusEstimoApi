@@ -279,17 +279,6 @@ public class ReceiverDto
     public string LedgerName { get; set; } = string.Empty;
 }
 
-public class WarehouseDto
-{
-    public string Warehouse { get; set; } = string.Empty;
-}
-
-public class BinDto
-{
-    public string Bin { get; set; } = string.Empty;
-    public long WarehouseID { get; set; }
-}
-
 public class GatePassDto
 {
     public long TransactionID { get; set; }

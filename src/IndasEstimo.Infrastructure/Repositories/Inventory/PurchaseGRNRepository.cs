@@ -177,7 +177,8 @@ public class PurchaseGRNRepository : IPurchaseGRNRepository
             LEFT JOIN JobBooking AS JB ON JB.BookingID = ITD.JobBookingID
                 AND ISNULL(JB.IsDeletedTransaction, 0) = 0
             WHERE (ITM.VoucherID = -14)
-              AND ITM.VoucherDate BETWEEN  @FromDate AND  @ToDate
+              AND ITM.VoucherDate BETWEEN CONVERT(datetime, @FromDate, 105)
+                                      AND DATEADD(day, 1, CONVERT(datetime, @ToDate, 105)) - 1
               AND (ITM.ProductionUnitID IN({productionUnitIdStr}) OR ISNULL(ITM.ProductionUnitID, 0) = 0)
             GROUP BY ISNULL(ITM.EWayBillNumber, ''), REPLACE(CONVERT(Varchar(13), ITM.EWayBillDate, 106), ' ', '-'),
                 ITM.TransactionID, ITD.PurchaseTransactionID, ITD.Remark, ITM.LedgerID, ITM.VoucherNo, ITM.VoucherDate,

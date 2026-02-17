@@ -1,33 +1,31 @@
-using System;
+using Dapper;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
+using IndasEstimo.Application.DTOs.Inventory;
 using IndasEstimo.Application.Interfaces.Repositories.Inventory;
-using IndasEstimo.Domain.Entities.Inventory;
+using IndasEstimo.Application.Interfaces.Services;
 using IndasEstimo.Infrastructure.Database;
 using IndasEstimo.Infrastructure.MultiTenancy;
-using IndasEstimo.Infrastructure.Extensions;
-using IndasEstimo.Application.Interfaces.Services;
-using Dapper;
 
 namespace IndasEstimo.Infrastructure.Repositories.Inventory;
 
 public class ItemIssueDirectRepository : IItemIssueDirectRepository
 {
-    private readonly IDbConnectionFactory _connectionFactory;
     private readonly ITenantProvider _tenantProvider;
+    private readonly IDbConnectionFactory _connectionFactory;
     private readonly IDbOperationsService _dbOperations;
     private readonly ICurrentUserService _currentUserService;
     private readonly ILogger<ItemIssueDirectRepository> _logger;
 
     public ItemIssueDirectRepository(
-        IDbConnectionFactory connectionFactory,
         ITenantProvider tenantProvider,
+        IDbConnectionFactory connectionFactory,
         IDbOperationsService dbOperations,
         ICurrentUserService currentUserService,
         ILogger<ItemIssueDirectRepository> logger)
     {
-        _connectionFactory = connectionFactory;
         _tenantProvider = tenantProvider;
+        _connectionFactory = connectionFactory;
         _dbOperations = dbOperations;
         _currentUserService = currentUserService;
         _logger = logger;
@@ -39,805 +37,1141 @@ public class ItemIssueDirectRepository : IItemIssueDirectRepository
         return _connectionFactory.CreateTenantConnection(tenantInfo.ConnectionString);
     }
 
-    // ==================== CRUD Operations ====================
+    // ─── GetIssueNo ──────────────────────────────────────────────────────────
 
-    public async Task<long> SaveItemIssueDirectAsync(
-        ItemIssueDirectMain main,
-        List<ItemIssueDirectDetail> details,
-        List<ItemIssueDirectConsumeMain>? consumeMain,
-        List<ItemIssueDirectConsumeDetail>? consumeDetails)
+    public async Task<string> GetIssueNoAsync(string prefix)
     {
-        using var connection = GetConnection();
-        await connection.OpenAsync();
-        using var transaction = connection.BeginTransaction();
-
-        try
-        {
-            // 1. Insert Main record (Audit fields handled by DbOperationsService)
-            var transactionId = await _dbOperations.InsertDataAsync(
-                "ItemTransactionMain",
-                main,
-                connection,
-                transaction,
-                "TransactionID");
-
-            // 2. Insert Detail records
-            await _dbOperations.InsertDataAsync(
-                "ItemTransactionDetail",
-                details,
-                connection,
-                transaction,
-                "TransactionDetailID",
-                parentTransactionId: transactionId);
-
-            // 3. Insert Consume Main records (if present)
-            if (consumeMain != null && consumeMain.Any())
-            {
-                await _dbOperations.InsertDataAsync(
-                    "ItemTransactionConsume",
-                    consumeMain,
-                    connection,
-                    transaction,
-                    "ConsumeID",
-                    parentTransactionId: transactionId);
-            }
-
-            // 4. Insert Consume Detail records (if present)
-            if (consumeDetails != null && consumeDetails.Any())
-            {
-                await _dbOperations.InsertDataAsync(
-                    "ItemTransactionConsumeDetail",
-                    consumeDetails,
-                    connection,
-                    transaction,
-                    "ConsumeDetailID",
-                    parentTransactionId: transactionId);
-            }
-
-            await transaction.CommitAsync();
-            return transactionId;
-        }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            _logger.LogError(ex, "Error saving item issue direct");
-            throw;
-        }
-    }
-
-    public async Task<long> UpdateItemIssueDirectAsync(
-        long transactionId,
-        ItemIssueDirectMain main,
-        List<ItemIssueDirectDetail> details,
-        List<ItemIssueDirectConsumeMain>? consumeMain,
-        List<ItemIssueDirectConsumeDetail>? consumeDetails)
-    {
-        using var connection = GetConnection();
-        await connection.OpenAsync();
-        using var transaction = connection.BeginTransaction();
-
-        try
-        {
-            var companyId = _currentUserService.GetCompanyId() ?? 0;
-
-            // 1. Update main record
-            main.TransactionID = transactionId;
-            main.ModifiedBy = _currentUserService.GetUserId() ?? 0;
-            main.ProductionUnitID = _currentUserService.GetProductionUnitId() ?? 0;
-            main.CompanyID = companyId;
-
-            await _dbOperations.UpdateDataAsync(
-                "ItemTransactionMain",
-                main,
-                connection,
-                transaction,
-                new[] { "TransactionID", "CompanyID" });
-
-            // 2. Delete existing details and related records
-            await connection.ExecuteAsync(
-                "DELETE FROM ItemTransactionDetail WHERE TransactionID = @TransactionID AND CompanyID = @CompanyId",
-                new { TransactionID = transactionId, CompanyId = companyId },
-                transaction);
-
-            await connection.ExecuteAsync(
-                "DELETE FROM ItemTransactionConsume WHERE TransactionID = @TransactionID AND CompanyID = @CompanyId",
-                new { TransactionID = transactionId, CompanyId = companyId },
-                transaction);
-
-            await connection.ExecuteAsync(
-                "DELETE FROM ItemTransactionConsumeDetail WHERE TransactionID = @TransactionID AND CompanyID = @CompanyId",
-                new { TransactionID = transactionId, CompanyId = companyId },
-                transaction);
-
-            // 3. Re-insert everything
-            await _dbOperations.InsertDataAsync(
-                "ItemTransactionDetail",
-                details,
-                connection,
-                transaction,
-                "TransactionDetailID",
-                parentTransactionId: transactionId);
-
-            if (consumeMain != null && consumeMain.Any())
-            {
-                await _dbOperations.InsertDataAsync(
-                    "ItemTransactionConsume",
-                    consumeMain,
-                    connection,
-                    transaction,
-                    "ConsumeID",
-                    parentTransactionId: transactionId);
-            }
-
-            if (consumeDetails != null && consumeDetails.Any())
-            {
-                await _dbOperations.InsertDataAsync(
-                    "ItemTransactionConsumeDetail",
-                    consumeDetails,
-                    connection,
-                    transaction,
-                    "ConsumeDetailID",
-                    parentTransactionId: transactionId);
-            }
-
-            await transaction.CommitAsync();
-            return transactionId;
-        }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            _logger.LogError(ex, "Error updating item issue direct {TransactionId}", transactionId);
-            throw;
-        }
-    }
-
-    public async Task<bool> DeleteItemIssueDirectAsync(long transactionId, long? jobContID)
-    {
-        using var connection = GetConnection();
-        await connection.OpenAsync();
-        using var transaction = connection.BeginTransaction();
-
-        try
-        {
-            var companyId = _currentUserService.GetCompanyId() ?? 0;
-            var userId = _currentUserService.GetUserId() ?? 0;
-
-            // 1. Soft Delete Main
-            string deleteMainSql = @"
-                UPDATE ItemTransactionMain
-                SET DeletedBy = @DeletedBy,
-                    DeletedDate = GETDATE(),
-                    IsDeletedTransaction = 1
-                WHERE TransactionID = @TransactionID AND CompanyID = @CompanyID";
-
-            await connection.ExecuteAsync(
-                deleteMainSql,
-                new { DeletedBy = userId, TransactionID = transactionId, CompanyID = companyId },
-                transaction);
-
-            // 2. Soft Delete Details
-            string deleteDetailSql = @"
-                UPDATE ItemTransactionDetail
-                SET IsDeletedTransaction = 1
-                WHERE TransactionID = @TransactionID
-                  AND CompanyID = @CompanyID";
-
-            await connection.ExecuteAsync(
-                deleteDetailSql,
-                new { TransactionID = transactionId, CompanyID = companyId },
-                transaction);
-
-            // 3. Soft Delete Consume records if present
-            string deleteConsumeSql = @"
-                UPDATE ItemTransactionConsume
-                SET IsDeletedTransaction = 1
-                WHERE TransactionID = @TransactionID
-                  AND CompanyID = @CompanyID";
-
-            await connection.ExecuteAsync(
-                deleteConsumeSql,
-                new { TransactionID = transactionId, CompanyID = companyId },
-                transaction);
-
-            string deleteConsumeDetailSql = @"
-                UPDATE ItemTransactionConsumeDetail
-                SET IsDeletedTransaction = 1
-                WHERE TransactionID = @TransactionID
-                  AND CompanyID = @CompanyID";
-
-            await connection.ExecuteAsync(
-                deleteConsumeDetailSql,
-                new { TransactionID = transactionId, CompanyID = companyId },
-                transaction);
-
-            await transaction.CommitAsync();
-            return true;
-        }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            _logger.LogError(ex, "Error deleting item issue direct {TransactionID}", transactionId);
-            throw;
-        }
-    }
-
-    // ==================== Voucher Number Generation ====================
-
-    public async Task<(string VoucherNo, long MaxVoucherNo)> GenerateNextIssueNumberAsync(string prefix)
-    {
-        return await _dbOperations.GenerateVoucherNoAsync(
-            "ItemTransactionMain",
-            -19,  // VoucherID for Item Issue
-            prefix);
-    }
-
-    public async Task<(string SlipNo, long MaxSlipNo)> GenerateNextSlipNumberAsync()
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
+        var companyId = _currentUserService.GetCompanyId();
+        var fYear = _currentUserService.GetFYear();
 
         var sql = @"
-            SELECT ISNULL(MAX(CAST(SlipNo AS BIGINT)), 0) + 1 AS NextSlipNo
+            SELECT ISNULL(MAX(ISNULL(MaxVoucherNo, 0)), 0) + 1
             FROM ItemTransactionMain
-            WHERE VoucherID = -19
+            WHERE IsDeletedTransaction = 0
+              AND VoucherID = -19
+              AND VoucherPrefix = @Prefix
               AND CompanyID = @CompanyID
-              AND ProductionUnitID = @ProductionUnitID
-              AND ISNULL(IsDeletedTransaction, 0) = 0
-              AND ISNUMERIC(SlipNo) = 1";
+              AND FYear = @FYear";
 
-        var nextSlipNo = await connection.ExecuteScalarAsync<long>(
-            sql,
-            new { CompanyID = companyId, ProductionUnitID = productionUnitId });
+        using var connection = GetConnection();
+        var maxNo = await connection.ExecuteScalarAsync<long>(sql, new
+        {
+            Prefix = prefix,
+            CompanyID = companyId,
+            FYear = fYear
+        });
 
-        return (nextSlipNo.ToString(), nextSlipNo);
+        return $"{prefix}{maxNo:D6}";
     }
 
-    public async Task<string?> GetVoucherNoAsync(long transactionId)
+    // ─── GetWarehouseList ────────────────────────────────────────────────────
+
+    public async Task<List<FloorWarehouseDto>> GetWarehouseListAsync()
     {
-        using var connection = GetConnection();
-        var sql = "SELECT VoucherNo FROM ItemTransactionMain WHERE TransactionID = @TransactionID AND CompanyID = @CompanyID";
-        return await connection.ExecuteScalarAsync<string>(
-            sql,
-            new { TransactionID = transactionId, CompanyID = _currentUserService.GetCompanyId() });
-    }
+        var companyId = _currentUserService.GetCompanyId();
 
-    // ==================== Retrieve Operations ====================
-
-    public async Task<List<Application.DTOs.Inventory.ItemIssueDirectDataDto>> GetItemIssueDirectDataAsync(long transactionId)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-
+        // MIN(WarehouseID) gives a stable fallback ID for warehouses that have no bins.
+        // The frontend uses this WarehouseID directly as FloorWarehouseID when no bin is selected.
+        // When bins exist, GetBinsListAsync returns the bin-specific WarehouseID to use instead.
         var sql = @"
             SELECT
-                itm.TransactionID,
-                itd.TransactionDetailID AS TransID,
-                itm.VoucherID,
-                itm.VoucherNo,
-                itm.VoucherDate,
-                ISNULL(itm.SlipNo, '') AS SlipNo,
-                itm.DepartmentID,
-                ISNULL(dm.DepartmentName, '') AS DepartmentName,
-                itm.MachineID,
-                ISNULL(mm.MachineName, '') AS MachineName,
-                ISNULL(itm.RefJobBookingJobCardContentsID, 0) AS RefJobBookingJobCardContentsID,
-                ISNULL(itm.RefJobCardContentNo, '') AS RefJobCardContentNo,
-                itd.ItemID,
-                im.ItemCode,
-                im.ItemName,
-                ISNULL(im.ItemDescription, '') AS ItemDescription,
-                itd.ItemGroupID,
-                itd.IssueQuantity,
-                itd.IssueWeight,
-                itd.IssueUnit,
-                itd.IssueRate,
-                itd.IssueAmount,
-                ISNULL(itd.StockBatchID, 0) AS StockBatchID,
-                ISNULL(sb.BatchNo, '') AS BatchNo,
-                ISNULL(itd.WarehouseID, 0) AS WarehouseID,
-                ISNULL(wh.WarehouseName, '') AS WarehouseName,
-                ISNULL(itd.BinID, 0) AS BinID,
-                ISNULL(bn.BinName, '') AS BinName,
-                ISNULL(itd.ProcessID, 0) AS ProcessID,
-                ISNULL(pm.ProcessName, '') AS ProcessName,
-                ISNULL(itd.ItemNarration, '') AS ItemNarration,
-                ISNULL(itd.Remark, '') AS Remark,
-                itm.TotalQuantity,
-                itm.TotalWeight,
-                itm.TotalAmount,
-                ISNULL(itm.Narration, '') AS Narration,
-                ISNULL(itm.StockType, '') AS StockType
-            FROM ItemTransactionMain itm
-            INNER JOIN ItemTransactionDetail itd ON itm.TransactionID = itd.TransactionID AND itd.CompanyID = @CompanyID
-            INNER JOIN ItemMaster im ON itd.ItemID = im.ItemID
-            LEFT JOIN DepartmentMaster dm ON itm.DepartmentID = dm.DepartmentID
-            LEFT JOIN MachineMaster mm ON itm.MachineID = mm.MachineID
-            LEFT JOIN StockBatch sb ON itd.StockBatchID = sb.StockBatchID
-            LEFT JOIN WarehouseMaster wh ON itd.WarehouseID = wh.WarehouseID
-            LEFT JOIN BinMaster bn ON itd.BinID = bn.BinID
-            LEFT JOIN ProcessMaster pm ON itd.ProcessID = pm.ProcessID
-            WHERE itm.TransactionID = @TransactionID
-              AND itm.CompanyID = @CompanyID
-              AND ISNULL(itm.IsDeletedTransaction, 0) = 0";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.ItemIssueDirectDataDto>(
-            sql,
-            new { TransactionID = transactionId, CompanyID = companyId }
-        );
-
-        return result.ToList();
-    }
-
-    public async Task<List<Application.DTOs.Inventory.ItemIssueDirectListDto>> GetItemIssuesDirectListAsync(
-        string fromDate,
-        string toDate,
-        bool applyDateFilter)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
-
-        var sql = @"
-            SELECT
-                itm.TransactionID,
-                itm.VoucherNo,
-                itm.VoucherDate,
-                ISNULL(itm.SlipNo, '') AS SlipNo,
-                ISNULL(dm.DepartmentName, '') AS DepartmentName,
-                ISNULL(mm.MachineName, '') AS MachineName,
-                ISNULL(itm.RefJobCardContentNo, '') AS RefJobCardContentNo,
-                itm.TotalQuantity,
-                itm.TotalWeight,
-                itm.TotalAmount,
-                ISNULL(itm.StockType, '') AS StockType,
-                itm.ProductionUnitID,
-                pu.ProductionUnitName
-            FROM ItemTransactionMain itm
-            LEFT JOIN DepartmentMaster dm ON itm.DepartmentID = dm.DepartmentID
-            LEFT JOIN MachineMaster mm ON itm.MachineID = mm.MachineID
-            LEFT JOIN ProductionUnitMaster pu ON itm.ProductionUnitID = pu.ProductionUnitID
-            WHERE itm.VoucherID = -19
-              AND itm.CompanyID = @CompanyID
-              AND itm.ProductionUnitID = @ProductionUnitID
-              AND ISNULL(itm.IsDeletedTransaction, 0) = 0
-              AND (@ApplyDateFilter = 0 OR (itm.VoucherDate >= CAST(@FromDate AS DATE) AND itm.VoucherDate <= CAST(@ToDate AS DATE)))
-            ORDER BY itm.VoucherDate DESC, itm.TransactionID DESC";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.ItemIssueDirectListDto>(
-            sql,
-            new
-            {
-                CompanyID = companyId,
-                ProductionUnitID = productionUnitId,
-                FromDate = fromDate,
-                ToDate = toDate,
-                ApplyDateFilter = applyDateFilter
-            }
-        );
-
-        return result.ToList();
-    }
-
-    public async Task<Application.DTOs.Inventory.ItemIssueDirectDataDto?> GetItemIssueDirectHeaderAsync(long transactionId)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-
-        var sql = @"
-            SELECT TOP 1
-                itm.TransactionID,
-                itm.VoucherNo,
-                itm.VoucherDate,
-                ISNULL(itm.SlipNo, '') AS SlipNo,
-                itm.DepartmentID,
-                ISNULL(dm.DepartmentName, '') AS DepartmentName,
-                itm.MachineID,
-                ISNULL(mm.MachineName, '') AS MachineName,
-                ISNULL(itm.RefJobBookingJobCardContentsID, 0) AS RefJobBookingJobCardContentsID,
-                ISNULL(itm.RefJobCardContentNo, '') AS RefJobCardContentNo,
-                itm.TotalQuantity,
-                itm.TotalWeight,
-                itm.TotalAmount,
-                ISNULL(itm.Narration, '') AS Narration,
-                ISNULL(itm.StockType, '') AS StockType
-            FROM ItemTransactionMain itm
-            LEFT JOIN DepartmentMaster dm ON itm.DepartmentID = dm.DepartmentID
-            LEFT JOIN MachineMaster mm ON itm.MachineID = mm.MachineID
-            WHERE itm.TransactionID = @TransactionID
-              AND itm.CompanyID = @CompanyID
-              AND ISNULL(itm.IsDeletedTransaction, 0) = 0";
-
-        var result = await connection.QueryFirstOrDefaultAsync<Application.DTOs.Inventory.ItemIssueDirectDataDto>(
-            sql,
-            new { TransactionID = transactionId, CompanyID = companyId }
-        );
-
-        return result;
-    }
-
-    // ==================== Picklist Operations ====================
-
-    public async Task<List<Application.DTOs.Inventory.DirectPicklistDto>> GetJobAllocatedPicklistAsync()
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
-
-        var sql = @"
-            SELECT
-                pr.PicklistReleaseID,
-                pr.PicklistNo,
-                pr.PicklistDate,
-                pr.RefJobBookingJobCardContentsID,
-                ISNULL(pr.RefJobCardContentNo, '') AS RefJobCardContentNo,
-                prd.PicklistReleaseDetailID,
-                prd.ItemID,
-                im.ItemCode,
-                im.ItemName,
-                ISNULL(im.ItemDescription, '') AS ItemDescription,
-                prd.RequiredQuantity,
-                (prd.RequiredQuantity - ISNULL((
-                    SELECT SUM(IssueQuantity)
-                    FROM ItemTransactionDetail
-                    WHERE PicklistReleaseDetailID = prd.PicklistReleaseDetailID
-                      AND CompanyID = @CompanyID
-                      AND ISNULL(IsDeletedTransaction, 0) = 0
-                ), 0)) AS PendingQuantity,
-                prd.IssueUnit AS StockUnit,
-                ISNULL(prd.StockBatchID, 0) AS StockBatchID,
-                ISNULL(sb.BatchNo, '') AS BatchNo,
-                ISNULL(im.IssueRate, 0) AS IssueRate
-            FROM PicklistReleaseMaster pr
-            INNER JOIN PicklistReleaseDetail prd ON pr.PicklistReleaseID = prd.PicklistReleaseID
-            INNER JOIN ItemMaster im ON prd.ItemID = im.ItemID
-            LEFT JOIN StockBatch sb ON prd.StockBatchID = sb.StockBatchID
-            WHERE pr.CompanyID = @CompanyID
-              AND pr.ProductionUnitID = @ProductionUnitID
-              AND ISNULL(pr.IsDeletedTransaction, 0) = 0
-              AND ISNULL(pr.IsPicklistReleased, 0) = 1
-              AND prd.RequiredQuantity > ISNULL((
-                    SELECT SUM(IssueQuantity)
-                    FROM ItemTransactionDetail
-                    WHERE PicklistReleaseDetailID = prd.PicklistReleaseDetailID
-                      AND CompanyID = @CompanyID
-                      AND ISNULL(IsDeletedTransaction, 0) = 0
-                ), 0)
-            ORDER BY pr.PicklistDate DESC, prd.ItemID";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.DirectPicklistDto>(
-            sql,
-            new { CompanyID = companyId, ProductionUnitID = productionUnitId }
-        );
-
-        return result.ToList();
-    }
-
-    public async Task<List<Application.DTOs.Inventory.DirectPicklistDto>> GetAllPicklistByStockTypeAsync(string stockType)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
-
-        var sql = @"
-            SELECT
-                im.ItemID,
-                im.ItemCode,
-                im.ItemName,
-                ISNULL(im.ItemDescription, '') AS ItemDescription,
-                ISNULL(im.StockUnit, '') AS StockUnit,
-                ISNULL(im.IssueRate, 0) AS IssueRate,
-                ISNULL(sb.StockBatchID, 0) AS BatchID,
-                ISNULL(sb.BatchNo, '') AS BatchNo,
-                ISNULL(sb.AvailableQuantity, 0) AS PhysicalStock,
-                ISNULL(sb.AvailableWeight, 0) AS AvailableWeight
-            FROM ItemMaster im
-            LEFT JOIN StockBatch sb ON im.ItemID = sb.ItemID
-            WHERE im.CompanyID = @CompanyID
-              AND ISNULL(im.IsDeletedTransaction, 0) = 0
-              AND (@StockType = '' OR im.StockType = @StockType)
-              AND ISNULL(sb.AvailableQuantity, 0) > 0
-            ORDER BY im.ItemCode, im.ItemName";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.DirectPicklistDto>(
-            sql,
-            new
-            {
-                CompanyID = companyId,
-                ProductionUnitID = productionUnitId,
-                StockType = stockType
-            }
-        );
-
-        return result.ToList();
-    }
-
-    // ==================== Stock Operations ====================
-
-    public async Task<List<Application.DTOs.Inventory.StockBatchDirectDto>> GetStockBatchWiseAsync(
-        long itemId,
-        long? jobBookingJobCardContentsID)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
-
-        // DTO fields: BatchID, BatchNo, Warehouse, Bin, BatchStock
-        // WarehouseID in StockBatch references WarehouseMaster.WarehouseID (WarehouseName → 'Warehouse')
-        // BinName in old schema is stored in WarehouseMaster (not separate BinMaster table)
-        var sql = @"
-            SELECT
-                sb.StockBatchID AS BatchID,
-                sb.BatchNo,
-                sb.ItemID,
-                ISNULL(sb.AvailableQuantity, 0) AS BatchStock,
-                ISNULL(sb.WarehouseID, 0) AS WarehouseID,
-                ISNULL(wh.WarehouseName, '') AS Warehouse,
-                ISNULL(wh.BinName, '') AS Bin,
-                ISNULL(sb.RefJobBookingJobCardContentsID, 0) AS RefJobBookingJobCardContentsID,
-                ISNULL(sb.RefJobCardContentNo, '') AS RefJobCardContentNo,
-                sb.BatchDate,
-                ISNULL(sb.IssueRate, 0) AS IssueRate
-            FROM StockBatch sb
-            LEFT JOIN WarehouseMaster wh ON sb.WarehouseID = wh.WarehouseID
-            WHERE sb.ItemID = @ItemID
-              AND sb.CompanyID = @CompanyID
-              AND sb.ProductionUnitID = @ProductionUnitID
-              AND ISNULL(sb.IsDeletedTransaction, 0) = 0
-              AND ISNULL(sb.AvailableQuantity, 0) > 0
-              AND (@JobBookingJobCardContentsID IS NULL OR sb.RefJobBookingJobCardContentsID = @JobBookingJobCardContentsID)
-            ORDER BY sb.BatchDate ASC, sb.BatchNo ASC";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.StockBatchDirectDto>(
-            sql,
-            new
-            {
-                ItemID = itemId,
-                CompanyID = companyId,
-                ProductionUnitID = productionUnitId,
-                JobBookingJobCardContentsID = jobBookingJobCardContentsID
-            }
-        );
-
-        return result.ToList();
-    }
-
-    // ==================== Lookup Operations ====================
-
-    public async Task<List<Application.DTOs.Inventory.JobCardDirectDto>> GetJobCardFilterListAsync()
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
-
-        // Note: JobBookingJobCardContents does NOT have ClientID, JobCardDate or JobCardStatus.
-        // Client info comes from JobBookingJobCard (parent table) via LedgerID.
-        // Old code used stored proc: Exec ItemIssueDirectJobCardRender
-        var sql = @"
-            SELECT
-                jbc.JobBookingID,
-                jbc.JobBookingJobCardContentsID,
-                jbj.LedgerID,
-                ISNULL(jbj.JobBookingNo, '') AS BookingNo,
-                ISNULL(jbc.JobCardContentNo, '') AS JobCardNo,
-                ISNULL(jbj.JobName, '') AS JobName,
-                ISNULL(jbc.PlanContName, '') AS ContentName,
-                ISNULL(CONVERT(VARCHAR(10), jbc.ReleasedDate, 120), '') AS ReleasedDate
-            FROM JobBookingJobCardContents jbc
-            INNER JOIN JobBookingJobCard jbj ON jbc.JobBookingID = jbj.JobBookingID
-                AND jbj.CompanyID = jbc.CompanyID
-            WHERE jbc.CompanyID = @CompanyID
-              AND jbc.ProductionUnitID = @ProductionUnitID
-              AND ISNULL(jbc.IsDeletedTransaction, 0) = 0
-              AND ISNULL(jbc.IsRelease, 0) = 1
-              AND ISNULL(jbj.IsClose, 0) = 0
-              AND ISNULL(jbj.IsDeletedTransaction, 0) = 0
-            ORDER BY jbc.ReleasedDate DESC, jbc.JobCardContentNo DESC";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.JobCardDirectDto>(
-            sql,
-            new { CompanyID = companyId, ProductionUnitID = productionUnitId }
-        );
-
-        return result.ToList();
-    }
-
-    public async Task<List<Application.DTOs.Inventory.DepartmentDto>> GetDepartmentsAsync()
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-
-        // Old VB query: select DepartmentID, nullif(DepartmentName,'') as DepartmentName from DepartmentMaster where IsDeletedTransaction=0
-        var sql = @"
-            SELECT
-                DepartmentID,
-                ISNULL(DepartmentName, '') AS DepartmentName
-            FROM DepartmentMaster
-            WHERE CompanyID = @CompanyID
-              AND ISNULL(IsDeletedTransaction, 0) = 0
-            ORDER BY DepartmentName";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.DepartmentDto>(
-            sql,
-            new { CompanyID = companyId });
-
-        return result.ToList();
-    }
-
-    public async Task<List<Application.DTOs.Inventory.MachineDto>> GetMachinesByDepartmentAsync(long departmentId)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-
-        var sql = @"
-            SELECT
-                MachineID,
-                ISNULL(MachineName, '') AS MachineName,
-                DepartmentID
-            FROM MachineMaster
-            WHERE CompanyID = @CompanyID
-              AND DepartmentID = @DepartmentID
-              AND ISNULL(IsDeletedTransaction, 0) = 0
-            ORDER BY MachineName";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.MachineDto>(
-            sql,
-            new { CompanyID = companyId, DepartmentID = departmentId });
-
-        return result.ToList();
-    }
-
-    public async Task<List<Application.DTOs.Inventory.ProcessDto>> GetProcessListJobWiseAsync(long jobCardContentsId)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-
-        var sql = @"
-            SELECT DISTINCT
-                pm.ProcessID,
-                ISNULL(pm.ProcessName, '') AS ProcessName
-            FROM ProcessMaster pm
-            INNER JOIN JobBookingJobCardProcess jcpd ON pm.ProcessID = jcpd.ProcessID
-            WHERE jcpd.JobBookingJobCardContentsID = @JobCardContentsID
-              AND pm.CompanyID = @CompanyID
-              AND ISNULL(pm.IsDeletedTransaction, 0) = 0
-            ORDER BY pm.ProcessName";
-
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.ProcessDto>(
-            sql,
-            new { JobCardContentsID = jobCardContentsId, CompanyID = companyId });
-
-        return result.ToList();
-    }
-
-    public async Task<List<Application.DTOs.Inventory.ItemIssueWarehouseDto>> GetWarehousesAsync()
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
-
-        // Old VB query: Select DISTINCT WarehouseName As Warehouse From WarehouseMaster
-        // DTO field is 'Warehouse' (not 'WarehouseName') - must alias correctly
-        var sql = @"
-            SELECT DISTINCT
-                WarehouseID,
+                MIN(ISNULL(WarehouseID, 0)) AS WarehouseID,
                 WarehouseName AS Warehouse
             FROM WarehouseMaster
-            WHERE CompanyID = @CompanyID
-              AND ISNULL(IsDeletedTransaction, 0) = 0
-              AND ISNULL(WarehouseName, '') <> ''
+            WHERE ISNULL(WarehouseName, '') <> ''
+              AND IsDeletedTransaction = 0
+              AND CompanyID = @CompanyID
+            GROUP BY WarehouseName
             ORDER BY WarehouseName";
 
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.ItemIssueWarehouseDto>(
-            sql,
-            new { CompanyID = companyId, ProductionUnitID = productionUnitId });
-
+        using var connection = GetConnection();
+        var result = await connection.QueryAsync<FloorWarehouseDto>(sql, new { CompanyID = companyId });
         return result.ToList();
     }
 
-    public async Task<List<Application.DTOs.Inventory.ItemIssueBinDto>> GetBinsAsync(string warehouseName)
-    {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
+    // ─── GetBinsList ──────────────────────────────────────────────────────────
 
-        // Old VB query: SELECT Distinct BinName AS Bin, WarehouseID FROM WarehouseMaster
-        // Bins are stored in WarehouseMaster (BinName column) in the legacy schema.
-        // DTO field is 'Bin' (not 'BinName') - must alias correctly.
-        // WarehouseID is a self-reference in WarehouseMaster for bin-to-warehouse mapping.
+    public async Task<List<FloorBinDto>> GetBinsListAsync(string warehouseName)
+    {
+        var companyId = _currentUserService.GetCompanyId();
+
+        // Each WarehouseName+BinName combination has its own WarehouseID row.
+        // The caller stores this WarehouseID as FloorWarehouseID in ItemTransactionDetail.
         var sql = @"
             SELECT DISTINCT
-                WarehouseID AS BinID,
-                BinName AS Bin,
-                WarehouseID
+                ISNULL(WarehouseID, 0) AS WarehouseID,
+                BinName AS Bin
             FROM WarehouseMaster
-            WHERE CompanyID = @CompanyID
-              AND WarehouseName = @WarehouseName
+            WHERE WarehouseName = @WarehouseName
               AND ISNULL(BinName, '') <> ''
-              AND ISNULL(IsDeletedTransaction, 0) = 0
+              AND IsDeletedTransaction = 0
+              AND CompanyID = @CompanyID
             ORDER BY BinName";
 
-        var result = await connection.QueryAsync<Application.DTOs.Inventory.ItemIssueBinDto>(
-            sql,
-            new
-            {
-                CompanyID = companyId,
-                ProductionUnitID = productionUnitId,
-                WarehouseName = warehouseName
-            });
-
+        using var connection = GetConnection();
+        var result = await connection.QueryAsync<FloorBinDto>(sql, new
+        {
+            WarehouseName = warehouseName,
+            CompanyID = companyId
+        });
         return result.ToList();
     }
 
-    // ==================== Utility Operations ====================
+    // ─── GetJobCardRender ────────────────────────────────────────────────────
 
-    public async Task<string> GetLastTransactionDateAsync()
+    public async Task<List<JobCardRenderDto>> GetJobCardRenderAsync()
     {
+        var companyId = _currentUserService.GetCompanyId();
+
+        var sql = "EXEC ItemIssueDirectJobCardRender @CompanyID";
+
         using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
-        var productionUnitId = _currentUserService.GetProductionUnitId() ?? 0;
-
-        var sql = @"
-            SELECT TOP 1 CONVERT(VARCHAR(10), VoucherDate, 120) AS VoucherDate
-            FROM ItemTransactionMain
-            WHERE VoucherID = -19
-              AND CompanyID = @CompanyID
-              AND ProductionUnitID = @ProductionUnitID
-              AND ISNULL(IsDeletedTransaction, 0) = 0
-            ORDER BY VoucherDate DESC";
-
-        var result = await connection.ExecuteScalarAsync<string>(
-            sql,
-            new { CompanyID = companyId, ProductionUnitID = productionUnitId });
-
-        return result ?? DateTime.Now.ToString("yyyy-MM-dd");
+        var result = await connection.QueryAsync<JobCardRenderDto>(sql, new { CompanyID = companyId });
+        return result.ToList();
     }
 
-    public async Task<bool> CheckUserAuthorityAsync()
+    // ─── GetJobAllocatedPicklist ──────────────────────────────────────────────
+
+    public async Task<List<JobAllocatedPicklistDto>> GetJobAllocatedPicklistAsync()
     {
-        using var connection = GetConnection();
-        var userId = _currentUserService.GetUserId() ?? 0;
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
+        var productionUnitId = _currentUserService.GetProductionUnitId();
 
-        // Old VB query: select UserID, ISNULL(IsExtraPaperIssue,0) As IsExtraPaperIssue from UserMaster where UserID='...'
         var sql = @"
-            SELECT ISNULL(IsExtraPaperIssue, 0)
-            FROM UserMaster
-            WHERE UserID = @UserID
-              AND CompanyID = @CompanyID
-              AND ISNULL(IsDeletedTransaction, 0) = 0";
+            SELECT
+                ISNULL(ITM.TransactionID, 0) AS PicklistTransactionID,
+                ISNULL(IPR.PicklistReleaseTransactionID, 0) AS PicklistReleaseTransactionID,
+                ISNULL(IPR.JobBookingJobCardContentsID, 0) AS JobBookingJobCardContentsID,
+                ISNULL(IPR.DepartmentID, 0) AS DepartmentID,
+                ISNULL(ITD.MachineID, 0) AS MachineID,
+                ISNULL(ITD.ProcessID, 0) AS ProcessID,
+                ISNULL(IPR.ItemID, 0) AS ItemID,
+                ISNULL(IM.ItemGroupID, 0) AS ItemGroupID,
+                ISNULL(IGM.ItemGroupNameID, 0) AS ItemGroupNameID,
+                ISNULL(IM.ItemSubGroupID, 0) AS ItemSubGroupID,
+                ISNULL(ITM.VoucherNo, 0) AS PicklistNo,
+                ISNULL(IPR.MaxReleaseNo, 0) AS ReleaseNo,
+                NULLIF(JJ.JobBookingNo, '') AS BookingNo,
+                NULLIF(JC.JobCardContentNo, '') AS JobCardNo,
+                NULLIF(JJ.JobName, '') AS JobName,
+                NULLIF(JC.PlanContName, '') AS ContentName,
+                NULLIF(PM.ProcessName, '') AS ProcessName,
+                NULLIF(DM.DepartmentName, '') AS Department,
+                NULLIF(MM.MachineName, '') AS MachineName,
+                NULLIF(IM.ItemCode, '') AS ItemCode,
+                NULLIF(IGM.ItemGroupName, '') AS ItemGroupName,
+                NULLIF(ISGM.ItemSubGroupName, '') AS ItemSubGroupName,
+                NULLIF(IM.ItemName, '') AS ItemName,
+                NULLIF(IM.ItemDescription, '') AS ItemDescription,
+                NULLIF(IM.StockUnit, '') AS StockUnit,
+                ISNULL(IMS.PhysicalStock, 0) AS PhysicalStock,
+                ISNULL(IMS.AllocatedStock, 0) AS AllocatedStock,
+                ISNULL(IM.WtPerPacking, 0) AS WtPerPacking,
+                ISNULL(IM.UnitPerPacking, 1) AS UnitPerPacking,
+                ISNULL(IM.ConversionFactor, 1) AS ConversionFactor,
+                ISNULL(IPR.ReleaseQuantity, 0) AS ReleaseQuantity,
+                ISNULL((
+                    SELECT SUM(ISNULL(IssueQuantity, 0))
+                    FROM ItemTransactionMain AS A
+                    INNER JOIN ItemTransactionDetail AS B
+                        ON A.TransactionID = B.TransactionID
+                        AND A.CompanyID = B.CompanyID
+                        AND A.VoucherID = -19
+                    WHERE ISNULL(B.IsDeletedTransaction, 0) = 0
+                      AND B.PicklistReleaseTransactionID = IPR.PicklistReleaseTransactionID
+                      AND B.ItemID = IPR.ItemID
+                      AND B.JobBookingJobCardContentsID = IPR.JobBookingJobCardContentsID
+                      AND A.DepartmentID = IPR.DepartmentID
+                      AND B.CompanyID = IPR.CompanyID
+                ), 0) AS IssueQuantity,
+                (
+                    ISNULL(IPR.ReleaseQuantity, 0) - ISNULL((
+                        SELECT SUM(ISNULL(IssueQuantity, 0))
+                        FROM ItemTransactionMain AS A
+                        INNER JOIN ItemTransactionDetail AS B
+                            ON A.TransactionID = B.TransactionID
+                            AND A.CompanyID = B.CompanyID
+                            AND A.VoucherID = -19
+                            AND B.IsDeletedTransaction = 0
+                        WHERE B.PicklistReleaseTransactionID = IPR.PicklistReleaseTransactionID
+                          AND B.ItemID = IPR.ItemID
+                          AND B.JobBookingJobCardContentsID = IPR.JobBookingJobCardContentsID
+                          AND A.DepartmentID = IPR.DepartmentID
+                          AND B.CompanyID = IPR.CompanyID
+                    ), 0)
+                ) AS PendingQuantity,
+                ISNULL(IGM.AllowIssueExtraQuantity, 0) AS AllowIssueExtraQuantity
+            FROM ItemPicklistReleaseDetail AS IPR
+            INNER JOIN ItemTransactionMain AS ITM
+                ON ITM.TransactionID = IPR.PicklistTransactionID AND ITM.CompanyID = IPR.CompanyID
+            INNER JOIN ItemTransactionDetail AS ITD
+                ON ITD.TransactionID = IPR.PicklistTransactionID
+                AND ITD.TransactionDetailID = IPR.PicklistTransactionDetailID
+                AND ITD.ItemID = IPR.ItemID
+                AND ITD.JobBookingJobCardContentsID = IPR.JobBookingJobCardContentsID
+                AND ITM.DepartmentID = IPR.DepartmentID
+                AND ITD.CompanyID = IPR.CompanyID
+            INNER JOIN ItemMaster AS IM ON IM.ItemID = IPR.ItemID
+            INNER JOIN ItemMasterStock AS IMS ON IMS.ItemID = IM.ItemID AND IMS.ProductionUnitID = IPR.ProductionUnitID
+            INNER JOIN ItemGroupMaster AS IGM ON IGM.ItemGroupID = IM.ItemGroupID
+            INNER JOIN DepartmentMaster AS DM ON DM.DepartmentID = IPR.DepartmentID
+            LEFT JOIN ItemSubGroupMaster AS ISGM
+                ON ISGM.ItemSubGroupID = IM.ItemSubGroupID AND ISNULL(ISGM.IsDeletedTransaction, 0) = 0
+            LEFT JOIN JobBookingJobCardContents AS JC
+                ON JC.JobBookingJobCardContentsID = IPR.JobBookingJobCardContentsID AND JC.CompanyID = IPR.CompanyID
+            LEFT JOIN JobBookingJobCard AS JJ
+                ON JJ.JobBookingID = JC.JobBookingID AND JJ.CompanyID = JC.CompanyID
+            LEFT JOIN MachineMaster AS MM ON MM.MachineID = ITD.MachineID
+            LEFT JOIN ProcessMaster AS PM ON PM.ProcessID = ITD.ProcessID
+            WHERE IPR.ProductionUnitID = @ProductionUnitID
+              AND ISNULL(IPR.IsDeletedTransaction, 0) = 0
+              AND ISNULL(ITD.IsCancelled, 0) = 0
+              AND ISNULL(ITD.IsCompleted, 0) = 0
+              AND ISNULL(ITD.IsDeletedTransaction, 0) = 0
+              AND (
+                    ISNULL(IPR.ReleaseQuantity, 0) - ISNULL((
+                        SELECT SUM(ISNULL(IssueQuantity, 0))
+                        FROM ItemTransactionMain AS A
+                        INNER JOIN ItemTransactionDetail AS B
+                            ON A.TransactionID = B.TransactionID
+                            AND A.CompanyID = B.CompanyID
+                            AND A.VoucherID = -19
+                            AND B.IsDeletedTransaction = 0
+                        WHERE B.PicklistReleaseTransactionID = IPR.PicklistReleaseTransactionID
+                          AND B.ItemID = IPR.ItemID
+                          AND B.JobBookingJobCardContentsID = IPR.JobBookingJobCardContentsID
+                          AND A.DepartmentID = IPR.DepartmentID
+                          AND B.CompanyID = IPR.CompanyID
+                    ), 0)
+              ) > 0
+            ORDER BY IPR.PicklistReleaseTransactionID";
 
-        var hasAuthority = await connection.ExecuteScalarAsync<bool>(
-            sql,
-            new { UserID = userId, CompanyID = companyId });
-
-        return hasAuthority;
+        using var connection = GetConnection();
+        var result = await connection.QueryAsync<JobAllocatedPicklistDto>(sql, new
+        {
+            ProductionUnitID = productionUnitId
+        });
+        return result.ToList();
     }
 
-    public async Task<bool> IsItemIssueUsedAsync(long transactionId)
+    // ─── GetAllPicklist ───────────────────────────────────────────────────────
+
+    public async Task<List<AllPicklistDto>> GetAllPicklistAsync()
     {
-        using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
+        var productionUnitId = _currentUserService.GetProductionUnitId();
 
-        // Check if this issue is referenced in any subsequent transactions (e.g. returns, consumption tracking)
         var sql = @"
-            SELECT COUNT(1)
-            FROM ItemTransactionDetail
-            WHERE IssueTransactionID = @TransactionID
-              AND CompanyID = @CompanyID
-              AND ISNULL(IsDeletedTransaction, 0) = 0";
+            SELECT
+                ISNULL(IPD.TransactionID, 0) AS TransactionID,
+                ISNULL(IM.ItemID, 0) AS ItemID,
+                ISNULL(IM.ItemGroupID, 0) AS ItemGroupID,
+                ISNULL(IGM.ItemGroupNameID, 0) AS ItemGroupNameID,
+                ISNULL(ISGM.ItemSubGroupID, 0) AS ItemSubGroupID,
+                ISNULL(ITS.GRNTransactionID, 0) AS GRNTransactionID,
+                ISNULL(ITS.WarehouseID, 0) AS WarehouseID,
+                ISNULL(IPD.JobBookingJobCardContentsID, 0) AS JobBookingJobCardContentsID,
+                NULLIF(IPD.VoucherNo, '') AS Picklist_Order_No,
+                NULLIF(IGM.ItemGroupName, '') AS ItemGroupName,
+                NULLIF(ISGM.ItemSubGroupName, '') AS ItemSubGroupName,
+                NULLIF('', '') AS ItemCode,
+                NULLIF(IM.ItemName, '') AS ItemName,
+                NULLIF(IM.ItemDescription, '') AS ItemDescription,
+                NULLIF(IM.StockUnit, '') AS StockUnit,
+                ISNULL(ITS.ClosingQty, 0) AS BatchStock,
+                ISNULL(IMS.PhysicalStock, 0) AS TotalPhysicalStock,
+                ISNULL(IMS.AllocatedStock, 0) AS TotalAllocatedStock,
+                NULLIF(ITS.GRNNo, '') AS GRNNo,
+                REPLACE(CONVERT(varchar(13), ITS.GRNDate, 106), ' ', '-') AS GRNDate,
+                NULLIF(ITS.BatchNo, '') AS BatchNo,
+                NULLIF(ITS.WarehouseName, '') AS Warehouse,
+                NULLIF(ITS.BinName, '') AS Bin,
+                ISNULL(IM.WtPerPacking, 0) AS WtPerPacking,
+                ISNULL(IM.UnitPerPacking, 1) AS UnitPerPacking,
+                ISNULL(IM.ConversionFactor, 1) AS ConversionFactor,
+                0 AS Issue_Qty,
+                IPS.PendingQuantity
+            FROM ItemMaster AS IM
+            INNER JOIN ItemGroupMaster AS IGM ON IGM.ItemGroupID = IM.ItemGroupID
+            INNER JOIN ItemMasterStock AS IMS ON IMS.ItemID = IM.ItemID AND IMS.ProductionUnitID = @ProductionUnitID
+            INNER JOIN (
+                SELECT
+                    ISNULL(ITD.CompanyID, 0) AS CompanyID,
+                    ISNULL(ITD.ItemID, 0) AS ItemID,
+                    ISNULL(ITD.ParentTransactionID, 0) AS GRNTransactionID,
+                    ISNULL(SUM(ISNULL(ITD.ReceiptQuantity, 0)), 0) - ISNULL(SUM(ISNULL(ITD.IssueQuantity, 0)), 0) AS ClosingQty,
+                    NULLIF(ITD.BatchNo, '') AS BatchNo,
+                    ISNULL(ITD.WarehouseID, 0) AS WarehouseID,
+                    NULLIF(WM.WarehouseName, '') AS WarehouseName,
+                    NULLIF(WM.BinName, '') AS BinName,
+                    NULLIF(IT.VoucherNo, '') AS GRNNo,
+                    IT.VoucherDate AS GRNDate
+                FROM ItemTransactionMain AS ITM
+                INNER JOIN ItemTransactionDetail AS ITD
+                    ON ITM.TransactionID = ITD.TransactionID AND ITM.CompanyID = ITD.CompanyID
+                    AND ITM.VoucherID NOT IN (-8, -9, -11)
+                INNER JOIN ItemTransactionMain AS IT
+                    ON IT.TransactionID = ITD.ParentTransactionID AND IT.CompanyID = ITD.CompanyID
+                INNER JOIN WarehouseMaster AS WM
+                    ON WM.WarehouseID = ITD.WarehouseID AND WM.CompanyID = ITD.CompanyID
+                WHERE ITM.ProductionUnitID = @ProductionUnitID
+                  AND ISNULL(ITD.IsDeletedTransaction, 0) = 0
+                  AND (ISNULL(ITD.ReceiptQuantity, 0) > 0 OR ISNULL(ITD.IssueQuantity, 0) > 0)
+                GROUP BY
+                    ISNULL(ITD.ItemID, 0), ISNULL(ITD.ParentTransactionID, 0),
+                    NULLIF(ITD.BatchNo, ''), ISNULL(ITD.WarehouseID, 0),
+                    NULLIF(WM.WarehouseName, ''), NULLIF(WM.BinName, ''),
+                    NULLIF(IT.VoucherNo, ''), IT.VoucherDate, ISNULL(ITD.CompanyID, 0)
+                HAVING (ISNULL(SUM(ISNULL(ITD.ReceiptQuantity, 0)), 0) - ISNULL(SUM(ISNULL(ITD.IssueQuantity, 0)), 0)) > 0
+            ) AS ITS ON ITS.ItemID = IM.ItemID
+            LEFT JOIN ItemSubGroupMaster AS ISGM
+                ON ISGM.ItemSubGroupID = IM.ItemSubGroupID AND ISNULL(ISGM.IsDeletedTransaction, 0) = 0
+            INNER JOIN (
+                SELECT DISTINCT ITPM.TransactionID, ITPD.IsReleased, ITPD.JobBookingJobCardContentsID,
+                    ITPM.DepartmentID, ITPD.CompanyID, ITPD.ItemID, ITPD.BatchNo, ITPM.VoucherNo
+                FROM ItemTransactionMain AS ITPM
+                INNER JOIN ItemTransactionDetail AS ITPD
+                    ON ITPM.TransactionID = ITPD.TransactionID AND ITPM.CompanyID = ITPD.CompanyID
+                WHERE ITPM.VoucherID = -17
+                  AND ITPM.ProductionUnitID = @ProductionUnitID
+                  AND ITPM.DepartmentID = -50
+                  AND ITPD.JobBookingJobCardContentsID = 0
+            ) AS IPD ON IPD.ItemID = ITS.ItemID AND IPD.BatchNo = ITS.BatchNo AND IPD.CompanyID = ITS.CompanyID
+            INNER JOIN (
+                SELECT ITM.TransactionID, ITD.ItemID, ITD.CompanyID,
+                    (SUM(ISNULL(ITD.RequiredQuantity, 0)) - ISNULL(IPS.IssueQuantity, 0)) AS PendingQuantity
+                FROM ItemTransactionMain AS ITM
+                INNER JOIN ItemTransactionDetail AS ITD
+                    ON ITM.TransactionID = ITD.TransactionID AND ITM.CompanyID = ITD.CompanyID
+                    AND ITM.VoucherID = -17
+                LEFT JOIN (
+                    SELECT ITD.PicklistTransactionID, ITD.ItemID, ITM.DepartmentID,
+                        ITD.JobBookingJobCardContentsID, ITD.CompanyID,
+                        ROUND(SUM(ISNULL(ITD.IssueQuantity, 0)), 2) AS IssueQuantity
+                    FROM ItemTransactionMain AS ITM
+                    INNER JOIN ItemTransactionDetail AS ITD
+                        ON ITM.TransactionID = ITD.TransactionID AND ITM.CompanyID = ITD.CompanyID
+                    WHERE ITM.VoucherID = -19
+                      AND ISNULL(ITM.IsDeletedTransaction, 0) <> 1
+                      AND ISNULL(ITD.JobBookingJobCardContentsID, 0) = 0
+                      AND ISNULL(ITM.DepartmentID, 0) = -50
+                    GROUP BY ITD.PicklistTransactionID, ITD.ItemID, ITM.DepartmentID,
+                        ITD.JobBookingJobCardContentsID, ITD.CompanyID
+                ) AS IPS ON IPS.PicklistTransactionID = ITD.TransactionID
+                    AND IPS.ItemID = ITD.ItemID
+                    AND IPS.DepartmentID = ITM.DepartmentID
+                    AND IPS.JobBookingJobCardContentsID = ITD.JobBookingJobCardContentsID
+                WHERE ISNULL(ITD.IsCancelled, 0) = 0
+                  AND ISNULL(ITD.IsCompleted, 0) = 0
+                  AND ISNULL(ITD.IsDeletedTransaction, 0) <> 1
+                GROUP BY ITM.TransactionID, ITD.ItemID, ITD.CompanyID, IPS.IssueQuantity
+            ) AS IPS ON IPS.TransactionID = IPD.TransactionID AND IPS.ItemID = IPD.ItemID
+            WHERE ISNULL(IPD.IsReleased, 0) = 1
+              AND IM.ItemName LIKE '%%'";
 
-        var count = await connection.ExecuteScalarAsync<int>(
-            sql,
-            new { TransactionID = transactionId, CompanyID = companyId });
-
-        return count > 0;
+        using var connection = GetConnection();
+        var result = await connection.QueryAsync<AllPicklistDto>(sql, new
+        {
+            ProductionUnitID = productionUnitId
+        });
+        return result.ToList();
     }
 
-    public async Task UpdateStockValuesAsync(long transactionId)
+    // ─── GetStockBatchWise ────────────────────────────────────────────────────
+
+    public async Task<List<StockBatchWiseDto>> GetStockBatchWiseAsync(long itemId, long jobBookingJobCardContentsId)
     {
-        // Placeholder for stock value update stored procedure
-        // Similar pattern to PurchaseOrderRepository
-        await Task.CompletedTask;
+        var productionUnitId = _currentUserService.GetProductionUnitId();
+
+        var issueQtySubQuery = jobBookingJobCardContentsId > 0
+            ? @"ISNULL((
+                    SELECT ISNULL(SUM(ISNULL(IssueQuantity, 0)), 0)
+                    FROM ItemTransactionDetail
+                    WHERE ISNULL(IsDeletedTransaction, 0) = 0
+                      AND JobBookingJobCardContentsID = @JobBookingJobCardContentsID
+                    GROUP BY JobBookingJobCardContentsID
+                ), 0)"
+            : "0";
+
+        var sql = $@"
+            SELECT
+                ISNULL(IM.ItemID, 0) AS ItemID,
+                ISNULL(IM.ItemGroupID, 0) AS ItemGroupID,
+                ISNULL(IGM.ItemGroupNameID, 0) AS ItemGroupNameID,
+                ISNULL(ISGM.ItemSubGroupID, 0) AS ItemSubGroupID,
+                ISNULL(Temp.ParentTransactionID, 0) AS ParentTransactionID,
+                ISNULL(Temp.WarehouseID, 0) AS WarehouseID,
+                NULLIF(IGM.ItemGroupName, '') AS ItemGroupName,
+                NULLIF(ISGM.ItemSubGroupName, '') AS ItemSubGroupName,
+                NULLIF(IM.ItemCode, '') AS ItemCode,
+                NULLIF(IM.ItemName, '') AS ItemName,
+                NULLIF(IM.ItemDescription, '') AS ItemDescription,
+                NULLIF(IM.StockUnit, '') AS StockUnit,
+                ISNULL(Temp.ClosingQty, 0) AS BatchStock,
+                NULLIF(Temp.GRNNo, '') AS GRNNo,
+                REPLACE(CONVERT(varchar(13), Temp.GRNDate, 106), ' ', '-') AS GRNDate,
+                NULLIF(Temp.BatchNo, '') AS BatchNo,
+                NULLIF(Temp.BatchID, '') AS BatchID,
+                ISNULL(Temp.IssueQTY, 0) AS IssueQuantity,
+                NULLIF(Temp.WarehouseName, '') AS Warehouse,
+                NULLIF(Temp.BinName, '') AS Bin,
+                ISNULL(IM.WtPerPacking, 0) AS WtPerPacking,
+                ISNULL(IM.UnitPerPacking, 1) AS UnitPerPacking,
+                ISNULL(IM.ConversionFactor, 1) AS ConversionFactor
+            FROM ItemMaster AS IM
+            INNER JOIN ItemGroupMaster AS IGM ON IGM.ItemGroupID = IM.ItemGroupID
+            INNER JOIN (
+                SELECT
+                    ISNULL(IM.CompanyID, 0) AS CompanyID,
+                    ISNULL(IM.ItemID, 0) AS ItemID,
+                    ISNULL(ITD.BatchID, 0) AS BatchID,
+                    ISNULL(ITD.WarehouseID, 0) AS WarehouseID,
+                    ISNULL(ITD.ParentTransactionID, 0) AS ParentTransactionID,
+                    ISNULL(SUM(ISNULL(ITD.ReceiptQuantity, 0)), 0) - ISNULL(SUM(ISNULL(ITD.IssueQuantity, 0)), 0) - ISNULL(SUM(ITD.RejectedQuantity), 0) AS ClosingQty,
+                    {issueQtySubQuery} AS IssueQTY,
+                    NULLIF(ITD.BatchNo, '') AS BatchNo,
+                    NULLIF(WM.WarehouseName, '') AS WarehouseName,
+                    NULLIF(WM.BinName, '') AS BinName,
+                    NULLIF(IT.VoucherNo, '') AS GRNNo,
+                    IT.VoucherDate AS GRNDate
+                FROM ItemMaster AS IM
+                INNER JOIN ItemTransactionDetail AS ITD
+                    ON ITD.ItemID = IM.ItemID
+                    AND ISNULL(ITD.IsDeletedTransaction, 0) = 0
+                    AND (ISNULL(ITD.ReceiptQuantity, 0) > 0 OR ISNULL(ITD.IssueQuantity, 0) > 0)
+                INNER JOIN ItemTransactionMain AS ITM
+                    ON ITM.TransactionID = ITD.TransactionID AND ITM.CompanyID = ITD.CompanyID
+                    AND ITM.VoucherID NOT IN (-8, -9, -11)
+                    AND ISNULL(ITM.IsDeletedTransaction, 0) = 0
+                    AND ISNULL(ITD.IsDeletedTransaction, 0) = 0
+                INNER JOIN ItemTransactionMain AS IT
+                    ON IT.TransactionID = ITD.ParentTransactionID AND ISNULL(IT.IsDeletedTransaction, 0) = 0
+                INNER JOIN WarehouseMaster AS WM
+                    ON WM.WarehouseID = ITD.WarehouseID AND ISNULL(WM.IsDeletedTransaction, 0) = 0
+                WHERE ITD.ProductionUnitID = @ProductionUnitID
+                  AND ITD.ItemID = @ItemId
+                GROUP BY
+                    ISNULL(ITD.BatchID, 0), ISNULL(IM.ItemID, 0), ISNULL(ITD.ParentTransactionID, 0),
+                    NULLIF(ITD.BatchNo, ''), ISNULL(ITD.WarehouseID, 0),
+                    NULLIF(WM.WarehouseName, ''), NULLIF(WM.BinName, ''),
+                    NULLIF(IT.VoucherNo, ''), IT.VoucherDate, ISNULL(IM.CompanyID, 0)
+                HAVING (
+                    ISNULL(SUM(ISNULL(ITD.ReceiptQuantity, 0)), 0) -
+                    ISNULL(SUM(ISNULL(ITD.IssueQuantity, 0)), 0) -
+                    ISNULL(SUM(ITD.RejectedQuantity), 0)
+                ) > 0
+            ) AS Temp ON Temp.ItemID = IM.ItemID
+            LEFT JOIN ItemSubGroupMaster AS ISGM
+                ON ISGM.ItemSubGroupID = IM.ItemSubGroupID AND ISNULL(ISGM.IsDeletedTransaction, 0) = 0
+            WHERE IM.ItemID = @ItemId
+            ORDER BY ParentTransactionID";
+
+        using var connection = GetConnection();
+        var result = await connection.QueryAsync<StockBatchWiseDto>(sql, new
+        {
+            ItemId = itemId,
+            JobBookingJobCardContentsID = jobBookingJobCardContentsId,
+            ProductionUnitID = productionUnitId
+        });
+        return result.ToList();
+    }
+
+    // ─── GetIssueList ─────────────────────────────────────────────────────────
+
+    public async Task<List<IssueListDto>> GetIssueListAsync(string fromDate, string toDate)
+    {
+        var productionUnitIdStr = _currentUserService.GetProductionUnitIdStr() ?? "0";
+
+        var sql = $@"
+            SELECT
+                IPM.TransactionID,
+                ITD.ItemID,
+                IM.ItemGroupID,
+                IGM.ItemGroupNameID,
+                IM.ItemSubGroupID,
+                ITD.WarehouseID,
+                ITD.FloorWarehouseID,
+                IPM.DepartmentID,
+                ISNULL(ITD.JobBookingJobCardContentsID, 0) AS JobBookingJobCardContentsID,
+                ISNULL(ITD.PicklistReleaseTransactionID, 0) AS PicklistReleaseTransactionID,
+                ISNULL(ITD.PicklistTransactionID, 0) AS PicklistTransactionID,
+                IPM.MaxVoucherNo,
+                NULLIF(IPM.VoucherNo, '') AS VoucherNo,
+                REPLACE(CONVERT(Varchar(13), IPM.VoucherDate, 106), ' ', '-') AS VoucherDate,
+                NULLIF(IPM.VoucherNo, '') AS PicklistNo,
+                NULLIF(DM.DepartmentName, '') AS DepartmentName,
+                NULLIF(JEJC.JobCardContentNo, '') AS JobCardNo,
+                NULLIF(JEJ.JobName, '') AS JobName,
+                NULLIF(JEJC.PlanContName, '') AS ContentName,
+                NULLIF(IM.ItemCode, '') AS ItemCode,
+                NULLIF(IGM.ItemGroupName, '') AS ItemGroupName,
+                NULLIF(ISGM.ItemSubGroupName, '') AS ItemSubGroupName,
+                IM.ItemName,
+                LM.LedgerName,
+                NULLIF(ITD.StockUnit, '') AS StockUnit,
+                SUM(ISNULL(ITD.IssueQuantity, 0)) AS IssueQuantity,
+                WM.WarehouseName AS Warehouse,
+                WM.BinName AS Bin,
+                NULLIF(IPM.DeliveryNoteNo, '') AS DeliveryNoteNo,
+                NULLIF(UM.UserName, '') AS UserName,
+                NULLIF(IPM.Narration, '') AS Narration,
+                MM.MachineId,
+                MM.MachineName,
+                IPM.FYear,
+                PUM.ProductionUnitID,
+                PUM.ProductionUnitName,
+                CM.CompanyName,
+                CM.CompanyID
+            FROM ItemTransactionMain AS IPM
+            INNER JOIN ItemTransactionDetail AS ITD ON ITD.TransactionID = IPM.TransactionID
+            INNER JOIN ItemMaster AS IM ON IM.ItemId = ITD.ItemID
+            INNER JOIN ItemGroupMaster AS IGM ON IGM.ItemGroupID = IM.ItemGroupID
+            INNER JOIN UserMaster AS UM ON UM.UserID = IPM.CreatedBy
+            LEFT JOIN DepartmentMaster AS DM ON DM.DepartmentID = IPM.DepartmentID
+            LEFT JOIN JobBookingJobCardContents AS JEJC
+                ON JEJC.JobBookingJobCardContentsID = ITD.JobBookingJobCardContentsID
+                AND JEJC.CompanyID = ITD.CompanyID
+            LEFT JOIN JobBookingJobCard AS JEJ
+                ON JEJ.JobBookingID = JEJC.JobBookingID AND JEJ.CompanyID = JEJC.CompanyID
+            LEFT JOIN ItemSubGroupMaster AS ISGM
+                ON ISGM.ItemSubGroupID = IM.ItemSubGroupID AND ISNULL(ISGM.IsDeletedTransaction, 0) = 0
+            LEFT OUTER JOIN WarehouseMaster AS WM
+                ON WM.WarehouseID = ITD.FloorWarehouseID AND WM.CompanyID = ITD.CompanyID
+            LEFT OUTER JOIN LedgerMaster AS LM ON LM.LedgerID = JEJ.LedgerID
+            LEFT JOIN MachineMaster AS MM ON MM.MachineId = ITD.MachineId
+            INNER JOIN ProductionUnitMaster AS PUM ON PUM.ProductionUnitID = IPM.ProductionUnitID
+            INNER JOIN CompanyMaster AS CM ON CM.CompanyID = PUM.CompanyID
+            WHERE IPM.VoucherID = -19
+              AND ISNULL(ITD.IsDeletedTransaction, 0) <> 1
+              AND IPM.ProductionUnitID IN ({productionUnitIdStr})
+              AND CAST(FLOOR(CAST(IPM.VoucherDate AS float)) AS datetime) >= @FromDate
+              AND CAST(FLOOR(CAST(IPM.VoucherDate AS float)) AS datetime) <= @ToDate
+            GROUP BY
+                IPM.MaxVoucherNo, IPM.TransactionID, ITD.ItemID, LM.LedgerName,
+                IM.ItemGroupID, IGM.ItemGroupNameID, IM.ItemSubGroupID,
+                ITD.WarehouseID, ITD.FloorWarehouseID, IPM.DepartmentID,
+                ITD.JobBookingJobCardContentsID, ITD.PicklistReleaseTransactionID, ITD.PicklistTransactionID,
+                IPM.VoucherNo, IPM.VoucherDate, DM.DepartmentName, JEJC.JobCardContentNo,
+                JEJ.JobName, JEJC.PlanContName, IM.ItemCode, IGM.ItemGroupName,
+                ISGM.ItemSubGroupName, IM.ItemName, IM.ItemDescription, ITD.StockUnit,
+                IPM.DeliveryNoteNo, UM.UserName, IPM.Narration,
+                WM.WarehouseName, WM.BinName, MM.MachineId, MM.MachineName,
+                IPM.FYear, PUM.ProductionUnitID, PUM.ProductionUnitName, CM.CompanyName, CM.CompanyID
+            ORDER BY IPM.FYear DESC, MaxVoucherNo DESC";
+
+        using var connection = GetConnection();
+        var result = await connection.QueryAsync<IssueListDto>(sql, new
+        {
+            FromDate = fromDate,
+            ToDate = toDate
+        });
+        return result.ToList();
+    }
+
+    // ─── GetIssueVoucherDetails ───────────────────────────────────────────────
+
+    public async Task<List<IssueVoucherDetailDto>> GetIssueVoucherDetailsAsync(long transactionId)
+    {
+        var sql = @"
+            SELECT DISTINCT
+                ISNULL(ITD.PicklistTransactionID, 0) AS PicklistTransactionID,
+                ISNULL(ITD.TransID, 0) AS TransID,
+                ISNULL(ITD.PicklistReleaseTransactionID, 0) AS PicklistReleaseTransactionID,
+                ISNULL(ITD.JobBookingJobCardContentsID, 0) AS JobBookingJobCardContentsID,
+                ISNULL(ITM.DepartmentID, 0) AS DepartmentID,
+                ISNULL(ITD.MachineID, 0) AS MachineID,
+                ISNULL(ITD.ProcessID, 0) AS ProcessID,
+                ISNULL(ITD.ParentTransactionID, 0) AS ParentTransactionID,
+                ISNULL(ITD.ItemID, 0) AS ItemID,
+                ISNULL(IM.ItemGroupID, 0) AS ItemGroupID,
+                ISNULL(IGM.ItemGroupNameID, 0) AS ItemGroupNameID,
+                ISNULL(IM.ItemSubGroupID, 0) AS ItemSubGroupID,
+                ISNULL(ITD.WarehouseID, 0) AS WarehouseID,
+                NULLIF(JJ.JobBookingNo, '') AS BookingNo,
+                NULLIF(JC.JobCardContentNo, '') AS JobCardNo,
+                NULLIF(JJ.JobName, '') AS JobName,
+                NULLIF(JC.PlanContName, '') AS ContentName,
+                NULLIF(PM.ProcessName, '') AS ProcessName,
+                NULLIF(MM.MachineName, '') AS MachineName,
+                NULLIF(DM.DepartmentName, '') AS DepartmentName,
+                NULLIF(IM.ItemCode, '') AS ItemCode,
+                NULLIF(IGM.ItemGroupName, '') AS ItemGroupName,
+                NULLIF(ISGM.ItemSubGroupName, '') AS ItemSubGroupName,
+                NULLIF(IM.ItemName, '') AS ItemName,
+                NULLIF(IM.ItemDescription, '') AS ItemDescription,
+                NULLIF(ITD.StockUnit, '') AS StockUnit,
+                0 AS BatchStock,
+                ISNULL(ITD.IssueQuantity, 0) AS IssueQuantity,
+                NULLIF(IT.VoucherNo, '') AS PicklistNo,
+                REPLACE(CONVERT(Varchar(13), IT.VoucherDate, 106), ' ', '-') AS PicklistDate,
+                ISNULL(ITD.BatchID, 0) AS BatchID,
+                NULLIF(ITD.BatchNo, '') AS BatchNo,
+                NULLIF(IBD.SupplierBatchNo, '') AS SupplierBatchNo,
+                NULLIF(IBD.MfgDate, '') AS MfgDate,
+                NULLIF(IBD.ExpiryDate, '') AS ExpiryDate,
+                NULLIF(WM.WareHouseName, '') AS Warehouse,
+                NULLIF(WM.BinName, '') AS Bin,
+                ISNULL(IM.WtPerPacking, 0) AS WtPerPacking,
+                ISNULL(IM.UnitPerPacking, 1) AS UnitPerPacking,
+                ISNULL(IM.ConversionFactor, 1) AS ConversionFactor
+            FROM ItemTransactionMain AS ITM
+            INNER JOIN ItemTransactionDetail AS ITD
+                ON ITD.TransactionID = ITM.TransactionID AND ITD.CompanyID = ITM.CompanyID
+            INNER JOIN ItemTransactionMain AS IT
+                ON IT.TransactionID = ITD.ParentTransactionID AND IT.CompanyID = ITD.CompanyID
+            INNER JOIN ItemMaster AS IM ON IM.ItemID = ITD.ItemID
+            INNER JOIN ItemGroupMaster AS IGM ON IGM.ItemGroupID = IM.ItemGroupID
+            INNER JOIN UserMaster AS UM ON UM.UserID = ITM.CreatedBy
+            INNER JOIN WarehouseMaster AS WM ON WM.WarehouseID = ITD.WarehouseID
+            LEFT JOIN DepartmentMaster AS DM ON DM.DepartmentID = ITM.DepartmentID
+            INNER JOIN ItemTransactionBatchDetail AS IBD
+                ON IBD.BatchID = ITD.BatchID AND IBD.CompanyID = ITD.CompanyID
+            LEFT JOIN ItemSubGroupMaster AS ISGM
+                ON ISGM.ItemSubGroupID = IM.ItemSubGroupID AND ISNULL(ISGM.IsDeletedTransaction, 0) = 0
+            LEFT JOIN JobBookingJobCardContents AS JC
+                ON JC.JobBookingJobCardContentsID = ITD.JobBookingJobCardContentsID AND JC.CompanyID = ITD.CompanyID
+            LEFT JOIN JobBookingJobCard AS JJ
+                ON JJ.JobBookingID = JC.JobBookingID AND JJ.CompanyID = ITD.CompanyID
+            LEFT JOIN ProcessMaster AS PM ON PM.ProcessID = ITD.ProcessID
+            LEFT JOIN MachineMaster AS MM ON MM.MachineID = ITD.MachineID AND MM.CompanyID = ITD.CompanyID
+            WHERE ITM.VoucherID = -19
+              AND ITM.TransactionID = @TransactionID
+              AND ISNULL(ITD.IsDeletedTransaction, 0) <> 1
+            ORDER BY TransID";
+
+        using var connection = GetConnection();
+        var result = await connection.QueryAsync<IssueVoucherDetailDto>(sql, new { TransactionID = transactionId });
+        return result.ToList();
+    }
+
+    // ─── GetHeaderName ────────────────────────────────────────────────────────
+
+    public async Task<List<IssueHeaderDto>> GetHeaderNameAsync(long transactionId)
+    {
+        var companyId = _currentUserService.GetCompanyId();
+        var fYear = _currentUserService.GetFYear();
+
+        var sql = @"
+            SELECT
+                ISNULL(ITM.TransactionID, 0) AS TransactionID,
+                ISNULL(ITD.ItemID, 0) AS ItemID,
+                ISNULL(IM.ItemGroupID, 0) AS ItemGroupID,
+                ISNULL(IGM.ItemGroupNameID, 0) AS ItemGroupNameID,
+                NULLIF(ITM.DeliveryNoteNo, '') AS DeliveryNoteNo,
+                ISNULL(IM.ItemSubGroupID, 0) AS ItemSubGroupID,
+                ISNULL(ITD.WarehouseID, 0) AS WarehouseID,
+                ISNULL(ITD.FloorWarehouseID, 0) AS FloorWarehouseID,
+                ISNULL(ITM.DepartmentID, 0) AS DepartmentID,
+                ISNULL(ITD.JobBookingJobCardContentsID, 0) AS JobBookingJobCardContentsID,
+                NULLIF(ITM.MaxVoucherNo, '') AS MaxVoucherNo,
+                NULLIF(ITM.VoucherNo, '') AS VoucherNo,
+                REPLACE(CONVERT(Varchar(13), ITM.VoucherDate, 106), ' ', '-') AS VoucherDate,
+                NULLIF(IPM.VoucherNo, '') AS PicklistNo,
+                NULLIF(DM.DepartmentName, '') AS DepartmentName,
+                NULLIF(JEJC.JobCardContentNo, '') AS JobCardNo,
+                NULLIF(JEJ.JobName, '') AS JobName,
+                NULLIF(JEJC.PlanContName, '') AS ContentName,
+                NULLIF(IGM.ItemGroupName, '') AS ItemGroupName,
+                NULLIF(ISGM.ItemSubGroupName, '') AS ItemSubGroupName,
+                NULLIF('', '') AS ItemCode,
+                NULLIF(IM.ItemName, '') AS ItemName,
+                NULLIF(IM.ItemDescription, '') AS ItemDescription,
+                NULLIF(ITD.StockUnit, '') AS StockUnit,
+                NULLIF(ITD.IssueQuantity, '') AS IssueQuantity,
+                ISNULL(ITD.BatchID, 0) AS BatchID,
+                NULLIF(ITD.BatchNo, '') AS BatchNo,
+                NULLIF(IBD.SupplierBatchNo, '') AS SupplierBatchNo,
+                NULLIF(WM.WareHouseName, '') AS Warehouse,
+                NULLIF(WM.BinName, '') AS Bin,
+                NULLIF(UM.UserName, '') AS UserName,
+                NULLIF(ITM.Narration, '') AS Narration
+            FROM ItemTransactionMain AS ITM
+            INNER JOIN ItemTransactionDetail AS ITD
+                ON ITM.TransactionID = ITD.TransactionID AND ITM.CompanyID = ITD.CompanyID
+            INNER JOIN ItemTransactionMain AS IPM
+                ON IPM.TransactionID = ITD.PicklistTransactionID AND IPM.CompanyID = ITD.CompanyID
+            INNER JOIN ItemMaster AS IM ON IM.ItemID = ITD.ItemID AND IM.CompanyID = ITD.CompanyID
+            INNER JOIN ItemGroupMaster AS IGM ON IGM.ItemGroupID = IM.ItemGroupID AND IGM.CompanyID = IM.CompanyID
+            INNER JOIN ItemTransactionBatchDetail AS IBD
+                ON IBD.BatchID = ITD.BatchID AND IBD.CompanyID = ITD.CompanyID
+            INNER JOIN UserMaster AS UM ON UM.UserID = ITM.CreatedBy AND UM.CompanyID = ITM.CompanyID
+            LEFT JOIN DepartmentMaster AS DM ON DM.DepartmentID = ITM.DepartmentID AND DM.CompanyID = ITM.CompanyID
+            LEFT JOIN JobBookingJobCardContents AS JEJC
+                ON JEJC.JobBookingJobCardContentsID = ITD.JobBookingJobCardContentsID AND JEJC.CompanyID = ITD.CompanyID
+            LEFT JOIN JobBookingJobCard AS JEJ
+                ON JEJ.JobBookingID = JEJC.JobBookingID AND JEJ.CompanyID = JEJC.CompanyID
+            LEFT JOIN ItemSubGroupMaster AS ISGM
+                ON ISGM.ItemSubGroupID = IM.ItemSubGroupID AND ISNULL(ISGM.IsDeletedTransaction, 0) = 0
+            LEFT JOIN WarehouseMaster AS WM ON WM.WarehouseID = ITD.WarehouseID AND WM.CompanyID = ITD.CompanyID
+            WHERE ITM.VoucherID = -19
+              AND ISNULL(ITD.IsDeletedTransaction, 0) <> 1
+              AND ITM.TransactionID = @TransactionID
+              AND ITM.CompanyID = @CompanyID
+              AND ITM.FYear IN (@FYear)";
+
+        using var connection = GetConnection();
+        var result = await connection.QueryAsync<IssueHeaderDto>(sql, new
+        {
+            TransactionID = transactionId,
+            CompanyID = companyId,
+            FYear = fYear
+        });
+        return result.ToList();
+    }
+
+    // ─── SaveIssueData ────────────────────────────────────────────────────────
+
+    public async Task<IssueSaveResultDto> SaveIssueDataAsync(SaveIssueDataRequest request)
+    {
+        var companyId = _currentUserService.GetCompanyId();
+        var userId = _currentUserService.GetUserId();
+        var fYear = _currentUserService.GetFYear();
+        var productionUnitId = _currentUserService.GetProductionUnitId();
+
+        using var connection = GetConnection();
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            // 1. Generate Issue voucher number
+            var maxVoucherSql = @"
+                SELECT ISNULL(MAX(ISNULL(MaxVoucherNo, 0)), 0) + 1
+                FROM ItemTransactionMain
+                WHERE VoucherPrefix = @Prefix
+                  AND CompanyID = @CompanyID
+                  AND FYear = @FYear";
+
+            var maxVoucherNo = await connection.ExecuteScalarAsync<long>(maxVoucherSql, new
+            {
+                request.Prefix,
+                CompanyID = companyId,
+                FYear = fYear
+            }, transaction);
+
+            var voucherNo = $"{request.Prefix}{maxVoucherNo:D6}";
+
+            // 2. Insert ItemTransactionMain
+            var insertMainSql = @"
+                INSERT INTO ItemTransactionMain (
+                    VoucherID, VoucherPrefix, MaxVoucherNo, VoucherNo, VoucherDate,
+                    DepartmentID, DeliveryNoteNo, Narration,
+                    ProductionUnitID, CompanyID, FYear,
+                    CreatedBy, ModifiedBy, CreatedDate, ModifiedDate
+                )
+                OUTPUT INSERTED.TransactionID
+                VALUES (
+                    -19, @Prefix, @MaxVoucherNo, @VoucherNo, @VoucherDate,
+                    @DepartmentID, @DeliveryNoteNo, @Narration,
+                    @ProductionUnitID, @CompanyID, @FYear,
+                    @UserId, @UserId, GETDATE(), GETDATE()
+                )";
+
+            var transactionId = await connection.ExecuteScalarAsync<long>(insertMainSql, new
+            {
+                request.Prefix,
+                MaxVoucherNo = maxVoucherNo,
+                VoucherNo = voucherNo,
+                request.MainData.VoucherDate,
+                request.MainData.DepartmentID,
+                request.MainData.DeliveryNoteNo,
+                request.MainData.Narration,
+                ProductionUnitID = productionUnitId,
+                CompanyID = companyId,
+                FYear = fYear,
+                UserId = userId
+            }, transaction);
+
+            // 3. Insert ItemTransactionDetail rows
+            var insertDetailSql = @"
+                INSERT INTO ItemTransactionDetail (
+                    TransactionID, ItemID, ItemGroupID, ItemSubGroupID,
+                    JobBookingJobCardContentsID, PicklistTransactionID, PicklistReleaseTransactionID,
+                    ParentTransactionID, WarehouseID, FloorWarehouseID,
+                    BatchID, BatchNo, IssueQuantity, RequiredQuantity,
+                    StockUnit, MachineID, ProcessID, DepartmentID,
+                    ProductionUnitID, CompanyID, FYear,
+                    CreatedBy, ModifiedBy, CreatedDate, ModifiedDate
+                )
+                VALUES (
+                    @TransactionID, @ItemID, @ItemGroupID, @ItemSubGroupID,
+                    @JobBookingJobCardContentsID, @PicklistTransactionID, @PicklistReleaseTransactionID,
+                    @ParentTransactionID, @WarehouseID, @FloorWarehouseID,
+                    @BatchID, @BatchNo, @IssueQuantity, @RequiredQuantity,
+                    @StockUnit, @MachineID, @ProcessID, @DepartmentID,
+                    @ProductionUnitID, @CompanyID, @FYear,
+                    @UserId, @UserId, GETDATE(), GETDATE()
+                )";
+
+            foreach (var detail in request.DetailData)
+            {
+                await connection.ExecuteAsync(insertDetailSql, new
+                {
+                    TransactionID = transactionId,
+                    detail.ItemID,
+                    detail.ItemGroupID,
+                    detail.ItemSubGroupID,
+                    detail.JobBookingJobCardContentsID,
+                    detail.PicklistTransactionID,
+                    detail.PicklistReleaseTransactionID,
+                    detail.ParentTransactionID,
+                    detail.WarehouseID,
+                    detail.FloorWarehouseID,
+                    detail.BatchID,
+                    detail.BatchNo,
+                    detail.IssueQuantity,
+                    detail.RequiredQuantity,
+                    detail.StockUnit,
+                    detail.MachineID,
+                    detail.ProcessID,
+                    detail.DepartmentID,
+                    ProductionUnitID = productionUnitId,
+                    CompanyID = companyId,
+                    FYear = fYear,
+                    UserId = userId
+                }, transaction);
+            }
+
+            // 4. Generate Consumption voucher number (VoucherID = -53, prefix = "RFS")
+            const string consumePrefix = "RFS";
+            const int consumeVoucherId = -53;
+
+            var maxConsumeVoucherSql = @"
+                SELECT ISNULL(MAX(ISNULL(MaxVoucherNo, 0)), 0) + 1
+                FROM ItemConsumptionMain
+                WHERE VoucherID = @VoucherID
+                  AND VoucherPrefix = @Prefix
+                  AND CompanyID = @CompanyID
+                  AND FYear = @FYear";
+
+            var maxConsumeVoucherNo = await connection.ExecuteScalarAsync<long>(maxConsumeVoucherSql, new
+            {
+                VoucherID = consumeVoucherId,
+                Prefix = consumePrefix,
+                CompanyID = companyId,
+                FYear = fYear
+            }, transaction);
+
+            var consumeVoucherNo = $"{consumePrefix}{maxConsumeVoucherNo:D6}";
+
+            // 5. Insert ItemConsumptionMain
+            var insertConsumeMainSql = @"
+                INSERT INTO ItemConsumptionMain (
+                    VoucherID, VoucherPrefix, MaxVoucherNo, VoucherNo, VoucherDate,
+                    ReturnTransactionID, DepartmentID,
+                    ProductionUnitID, CompanyID, FYear,
+                    CreatedBy, ModifiedBy, CreatedDate, ModifiedDate
+                )
+                OUTPUT INSERTED.ConsumptionTransactionID
+                VALUES (
+                    @VoucherID, @Prefix, @MaxVoucherNo, @VoucherNo, @VoucherDate,
+                    @ReturnTransactionID, @DepartmentID,
+                    @ProductionUnitID, @CompanyID, @FYear,
+                    @UserId, @UserId, GETDATE(), GETDATE()
+                )";
+
+            var consumptionTransactionId = await connection.ExecuteScalarAsync<long>(insertConsumeMainSql, new
+            {
+                VoucherID = consumeVoucherId,
+                Prefix = consumePrefix,
+                MaxVoucherNo = maxConsumeVoucherNo,
+                VoucherNo = consumeVoucherNo,
+                request.ConsumeMainData.VoucherDate,
+                ReturnTransactionID = transactionId,
+                request.ConsumeMainData.DepartmentID,
+                ProductionUnitID = productionUnitId,
+                CompanyID = companyId,
+                FYear = fYear,
+                UserId = userId
+            }, transaction);
+
+            // 6. Insert ItemConsumptionDetail rows
+            var insertConsumeDetailSql = @"
+                INSERT INTO ItemConsumptionDetail (
+                    ConsumptionTransactionID, IssueTransactionID,
+                    ItemID, JobBookingJobCardContentsID,
+                    ConsumedQuantity, StockUnit, BatchID, BatchNo,
+                    ProductionUnitID, CompanyID, FYear,
+                    CreatedBy, ModifiedBy, CreatedDate, ModifiedDate
+                )
+                VALUES (
+                    @ConsumptionTransactionID, @IssueTransactionID,
+                    @ItemID, @JobBookingJobCardContentsID,
+                    @ConsumedQuantity, @StockUnit, @BatchID, @BatchNo,
+                    @ProductionUnitID, @CompanyID, @FYear,
+                    @UserId, @UserId, GETDATE(), GETDATE()
+                )";
+
+            foreach (var consumeDetail in request.ConsumeDetailData)
+            {
+                await connection.ExecuteAsync(insertConsumeDetailSql, new
+                {
+                    ConsumptionTransactionID = consumptionTransactionId,
+                    IssueTransactionID = transactionId,
+                    consumeDetail.ItemID,
+                    consumeDetail.JobBookingJobCardContentsID,
+                    consumeDetail.ConsumedQuantity,
+                    consumeDetail.StockUnit,
+                    consumeDetail.BatchID,
+                    consumeDetail.BatchNo,
+                    ProductionUnitID = productionUnitId,
+                    CompanyID = companyId,
+                    FYear = fYear,
+                    UserId = userId
+                }, transaction);
+            }
+
+            transaction.Commit();
+
+            // 7. Post-save: Update stock and auto-close picklist (outside transaction scope)
+            await connection.ExecuteAsync(
+                "EXEC UPDATE_ITEM_STOCK_VALUES_UNIT_WISE @CompanyID, @TransactionID, 0",
+                new { CompanyID = companyId, TransactionID = transactionId });
+
+            await connection.ExecuteAsync(
+                "EXEC AUTOCLOSE_PICKLIST_21052022 @TransactionID, @CompanyID, @UserID",
+                new { TransactionID = transactionId, CompanyID = companyId, UserID = userId });
+
+            return new IssueSaveResultDto
+            {
+                VoucherNo = voucherNo,
+                TransactionID = transactionId
+            };
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
+    // ─── UpdateIssue ──────────────────────────────────────────────────────────
+
+    public async Task UpdateIssueAsync(UpdateIssueDataRequest request)
+    {
+        var companyId = _currentUserService.GetCompanyId();
+        var userId = _currentUserService.GetUserId();
+        var fYear = _currentUserService.GetFYear();
+        var productionUnitId = _currentUserService.GetProductionUnitId();
+
+        using var connection = GetConnection();
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            // 1. Update ItemTransactionMain
+            var updateMainSql = @"
+                UPDATE ItemTransactionMain SET
+                    VoucherDate     = @VoucherDate,
+                    DepartmentID    = @DepartmentID,
+                    DeliveryNoteNo  = @DeliveryNoteNo,
+                    Narration       = @Narration,
+                    ModifiedBy      = @UserId,
+                    ModifiedDate    = GETDATE()
+                WHERE CompanyID = @CompanyID AND TransactionID = @TransactionID";
+
+            await connection.ExecuteAsync(updateMainSql, new
+            {
+                request.MainData.VoucherDate,
+                request.MainData.DepartmentID,
+                request.MainData.DeliveryNoteNo,
+                request.MainData.Narration,
+                UserId = userId,
+                CompanyID = companyId,
+                request.TransactionID
+            }, transaction);
+
+            // 2. Delete old details and re-insert
+            await connection.ExecuteAsync(
+                "DELETE FROM ItemTransactionDetail WHERE CompanyID = @CompanyID AND TransactionID = @TransactionID",
+                new { CompanyID = companyId, TransactionID = request.TransactionID }, transaction);
+
+            var insertDetailSql = @"
+                INSERT INTO ItemTransactionDetail (
+                    TransactionID, ItemID, ItemGroupID, ItemSubGroupID,
+                    JobBookingJobCardContentsID, PicklistTransactionID, PicklistReleaseTransactionID,
+                    ParentTransactionID, WarehouseID, FloorWarehouseID,
+                    BatchID, BatchNo, IssueQuantity, RequiredQuantity,
+                    StockUnit, MachineID, ProcessID, DepartmentID,
+                    ProductionUnitID, CompanyID, FYear,
+                    CreatedBy, ModifiedBy, CreatedDate, ModifiedDate
+                )
+                VALUES (
+                    @TransactionID, @ItemID, @ItemGroupID, @ItemSubGroupID,
+                    @JobBookingJobCardContentsID, @PicklistTransactionID, @PicklistReleaseTransactionID,
+                    @ParentTransactionID, @WarehouseID, @FloorWarehouseID,
+                    @BatchID, @BatchNo, @IssueQuantity, @RequiredQuantity,
+                    @StockUnit, @MachineID, @ProcessID, @DepartmentID,
+                    @ProductionUnitID, @CompanyID, @FYear,
+                    @UserId, @UserId, GETDATE(), GETDATE()
+                )";
+
+            foreach (var detail in request.DetailData)
+            {
+                await connection.ExecuteAsync(insertDetailSql, new
+                {
+                    TransactionID = request.TransactionID,
+                    detail.ItemID,
+                    detail.ItemGroupID,
+                    detail.ItemSubGroupID,
+                    detail.JobBookingJobCardContentsID,
+                    detail.PicklistTransactionID,
+                    detail.PicklistReleaseTransactionID,
+                    detail.ParentTransactionID,
+                    detail.WarehouseID,
+                    detail.FloorWarehouseID,
+                    detail.BatchID,
+                    detail.BatchNo,
+                    detail.IssueQuantity,
+                    detail.RequiredQuantity,
+                    detail.StockUnit,
+                    detail.MachineID,
+                    detail.ProcessID,
+                    detail.DepartmentID,
+                    ProductionUnitID = productionUnitId,
+                    CompanyID = companyId,
+                    FYear = fYear,
+                    UserId = userId
+                }, transaction);
+            }
+
+            // 3. Update ItemConsumptionMain
+            var updateConsumeMainSql = @"
+                UPDATE ItemConsumptionMain SET
+                    VoucherDate      = @VoucherDate,
+                    DepartmentID     = @DepartmentID,
+                    ModifiedBy       = @UserId,
+                    ModifiedDate     = GETDATE(),
+                    ProductionUnitID = @ProductionUnitID
+                WHERE CompanyID = @CompanyID AND ReturnTransactionID = @TransactionID";
+
+            await connection.ExecuteAsync(updateConsumeMainSql, new
+            {
+                request.ConsumeMainData.VoucherDate,
+                request.ConsumeMainData.DepartmentID,
+                UserId = userId,
+                ProductionUnitID = productionUnitId,
+                CompanyID = companyId,
+                TransactionID = request.TransactionID
+            }, transaction);
+
+            // 4. Get ConsumptionTransactionID
+            var getConsumptionIdSql = @"
+                SELECT ConsumptionTransactionID
+                FROM ItemConsumptionMain
+                WHERE CompanyID = @CompanyID
+                  AND ISNULL(IsDeletedTransaction, 0) <> 1
+                  AND ReturnTransactionID = @TransactionID";
+
+            var consumptionTransactionId = await connection.ExecuteScalarAsync<long>(getConsumptionIdSql, new
+            {
+                CompanyID = companyId,
+                TransactionID = request.TransactionID
+            }, transaction);
+
+            // 5. Delete old consumption details and re-insert
+            await connection.ExecuteAsync(
+                "DELETE FROM ItemConsumptionDetail WHERE CompanyID = @CompanyID AND IssueTransactionID = @TransactionID",
+                new { CompanyID = companyId, TransactionID = request.TransactionID }, transaction);
+
+            var insertConsumeDetailSql = @"
+                INSERT INTO ItemConsumptionDetail (
+                    ConsumptionTransactionID, IssueTransactionID,
+                    ItemID, JobBookingJobCardContentsID,
+                    ConsumedQuantity, StockUnit, BatchID, BatchNo,
+                    ProductionUnitID, CompanyID, FYear,
+                    CreatedBy, ModifiedBy, CreatedDate, ModifiedDate
+                )
+                VALUES (
+                    @ConsumptionTransactionID, @IssueTransactionID,
+                    @ItemID, @JobBookingJobCardContentsID,
+                    @ConsumedQuantity, @StockUnit, @BatchID, @BatchNo,
+                    @ProductionUnitID, @CompanyID, @FYear,
+                    @UserId, @UserId, GETDATE(), GETDATE()
+                )";
+
+            foreach (var consumeDetail in request.ConsumeDetailData)
+            {
+                await connection.ExecuteAsync(insertConsumeDetailSql, new
+                {
+                    ConsumptionTransactionID = consumptionTransactionId,
+                    IssueTransactionID = request.TransactionID,
+                    consumeDetail.ItemID,
+                    consumeDetail.JobBookingJobCardContentsID,
+                    consumeDetail.ConsumedQuantity,
+                    consumeDetail.StockUnit,
+                    consumeDetail.BatchID,
+                    consumeDetail.BatchNo,
+                    ProductionUnitID = productionUnitId,
+                    CompanyID = companyId,
+                    FYear = fYear,
+                    UserId = userId
+                }, transaction);
+            }
+
+            transaction.Commit();
+
+            // 6. Post-update: Update stock and auto-close picklist (outside transaction scope)
+            await connection.ExecuteAsync(
+                "EXEC UPDATE_ITEM_STOCK_VALUES_UNIT_WISE @CompanyID, @TransactionID, 0",
+                new { CompanyID = companyId, TransactionID = request.TransactionID });
+
+            await connection.ExecuteAsync(
+                "EXEC AUTOCLOSE_PICKLIST_21052022 @TransactionID, @CompanyID, @UserID",
+                new { TransactionID = request.TransactionID, CompanyID = companyId, UserID = userId });
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
+    // ─── DeleteIssue ──────────────────────────────────────────────────────────
+
+    public async Task DeleteIssueAsync(long transactionId, long jobBookingJobCardContentsId)
+    {
+        var companyId = _currentUserService.GetCompanyId();
+        var userId = _currentUserService.GetUserId();
+
+        using var connection = GetConnection();
+        await connection.OpenAsync();
+
+        // Soft-delete ItemTransactionMain
+        await connection.ExecuteAsync(@"
+            UPDATE ItemTransactionMain SET
+                DeletedBy = @UserId, DeletedDate = GETDATE(), IsDeletedTransaction = 1
+            WHERE CompanyID = @CompanyID AND TransactionID = @TransactionID",
+            new { UserId = userId, CompanyID = companyId, TransactionID = transactionId });
+
+        // Soft-delete ItemTransactionDetail
+        await connection.ExecuteAsync(@"
+            UPDATE ItemTransactionDetail SET
+                DeletedBy = @UserId, DeletedDate = GETDATE(), IsDeletedTransaction = 1
+            WHERE CompanyID = @CompanyID AND TransactionID = @TransactionID",
+            new { UserId = userId, CompanyID = companyId, TransactionID = transactionId });
+
+        // Soft-delete ItemConsumptionMain
+        await connection.ExecuteAsync(@"
+            UPDATE ItemConsumptionMain SET
+                DeletedBy = @UserId, DeletedDate = GETDATE(), IsDeletedTransaction = 1
+            WHERE CompanyID = @CompanyID AND ReturnTransactionID = @TransactionID",
+            new { UserId = userId, CompanyID = companyId, TransactionID = transactionId });
+
+        // Soft-delete ItemConsumptionDetail
+        await connection.ExecuteAsync(@"
+            UPDATE ItemConsumptionDetail SET
+                ModifiedBy = @UserId, DeletedBy = @UserId,
+                DeletedDate = GETDATE(), ModifiedDate = GETDATE(), IsDeletedTransaction = 1
+            WHERE CompanyID = @CompanyID AND IssueTransactionID = @TransactionID",
+            new { UserId = userId, CompanyID = companyId, TransactionID = transactionId });
+
+        // Post-delete: Update stock and auto-close picklist
+        await connection.ExecuteAsync(
+            "EXEC UPDATE_ITEM_STOCK_VALUES_UNIT_WISE @CompanyID, @TransactionID, 0",
+            new { CompanyID = companyId, TransactionID = transactionId });
+
+        await connection.ExecuteAsync(
+            "EXEC AUTOCLOSE_PICKLIST_21052022 @TransactionID, @CompanyID, @UserID",
+            new { TransactionID = transactionId, CompanyID = companyId, UserID = userId });
     }
 }

@@ -55,6 +55,9 @@ public class ReelDto
     public string PaperGroup { get; set; } = string.Empty;  // Added from legacy
     public string ItemGroupName { get; set; } = string.Empty;  // Added from legacy
     public string PurchaseUnit { get; set; } = string.Empty;  // Added from legacy
+    public bool IsStandardItem { get; set; }  // For filtering standard/special size papers
+    public bool IsAvailable { get; set; }  // Stock availability flag
+    public decimal StockQuantity => PhysicalStock;  // Alias for PhysicalStock (frontend compatibility)
 }
 
 /// <summary>

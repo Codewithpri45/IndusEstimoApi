@@ -32,9 +32,8 @@ public class FlexoPlanCalculationRequest
     public string PaperRateType { get; set; } = "KG"; // Estimation_Paper_Rate_Type: KG, SQM, RM (Running Meter)
     public string PaperUnit { get; set; } = "KG"; // Gbl_Estimation_Unit
 
-    // Machine Selection
-    [Required]
-    public int MachineId { get; set; } // Gbl_Machine_ID
+    // Machine Selection (OPTIONAL - If 0, plans will be generated for ALL machines with cylinders)
+    public int MachineId { get; set; } // Gbl_Machine_ID (0 = All machines)
     public long? CylinderId { get; set; } // Gbl_Cylinder_Tool_ID (Crucial for Flexo)
     
     // Process Details

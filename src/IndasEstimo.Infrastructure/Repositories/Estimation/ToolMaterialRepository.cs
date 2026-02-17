@@ -124,7 +124,9 @@ public class ToolMaterialRepository : IToolMaterialRepository
                     ISNULL(IM.AvgRollLength, 0) AS AvgRollLength,
                     ISNULL(IM.PaperGroup, '') AS PaperGroup,
                     ISNULL(IG.ItemGroupName, '') AS ItemGroupName,
-                    ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit
+                    ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit,
+                    ISNULL(IM.IsStandardItem, 0) AS IsStandardItem,
+                    CASE WHEN ISNULL(IM.PhysicalStock, 0) > 0 THEN 1 ELSE 0 END AS IsAvailable
                 FROM ItemMaster AS IM
                 INNER JOIN ItemGroupMaster AS IG ON IG.ItemGroupID = IM.ItemGroupID
                 WHERE IG.ItemGroupNameID = @ItemGroupNameID
@@ -171,7 +173,9 @@ public class ToolMaterialRepository : IToolMaterialRepository
                     ISNULL(IM.AvgRollLength, 0) AS AvgRollLength,
                     ISNULL(IM.PaperGroup, '') AS PaperGroup,
                     ISNULL(IG.ItemGroupName, '') AS ItemGroupName,
-                    ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit
+                    ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit,
+                    ISNULL(IM.IsStandardItem, 0) AS IsStandardItem,
+                    CASE WHEN ISNULL(IM.PhysicalStock, 0) > 0 THEN 1 ELSE 0 END AS IsAvailable
                 FROM ItemMaster AS IM
                 INNER JOIN ItemGroupMaster AS IG ON IG.ItemGroupID = IM.ItemGroupID
                 WHERE IG.ItemGroupNameID = @ItemGroupNameID
@@ -221,7 +225,9 @@ public class ToolMaterialRepository : IToolMaterialRepository
                 ISNULL(IM.AvgRollLength, 0) AS AvgRollLength,
                 ISNULL(IM.PaperGroup, '') AS PaperGroup,
                 ISNULL(IG.ItemGroupName, '') AS ItemGroupName,
-                ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit
+                ISNULL(IM.PurchaseUnit, '') AS PurchaseUnit,
+                ISNULL(IM.IsStandardItem, 0) AS IsStandardItem,
+                CASE WHEN ISNULL(IM.PhysicalStock, 0) > 0 THEN 1 ELSE 0 END AS IsAvailable
             FROM ItemMaster AS IM
             INNER JOIN ItemGroupMaster AS IG ON IG.ItemGroupID = IM.ItemGroupID
             WHERE IM.ItemID = @ItemID
