@@ -147,7 +147,19 @@ public class FlexoCalculationService : IFlexoCalculationService
                         Orientation = request.Orientation,
                         WastageType = request.WastageType,
                         FlatWastageValue = request.FlatWastageValue,
-                        CategoryId = request.CategoryId
+                        CategoryId = request.CategoryId,
+                        PlateBearer = request.PlateBearer,
+                        ColorStrip = request.ColorStrip,
+                        MakeReadyWastage = request.MakeReadyWastage,
+                        GrainDirection = request.GrainDirection,
+                        PlanInAvailableStock = request.PlanInAvailableStock,
+                        PlanInSpecialSizePaper = request.PlanInSpecialSizePaper,
+                        PlanInStandardSizePaper = request.PlanInStandardSizePaper,
+                        PaperSuppliedByClient = request.PaperSuppliedByClient,
+                        BackToBackPastingRequired = request.BackToBackPastingRequired,
+                        PaperQuality = request.PaperQuality,
+                        PaperGSM = request.PaperGSM,
+                        PaperMill = request.PaperMill
                     };
 
                     // Strategy A: Specific Reel Selected
@@ -217,9 +229,12 @@ public class FlexoCalculationService : IFlexoCalculationService
 
     private async Task PlanOnRoll(FlexoPlanCalculationRequest request, MachineGridDto machine, ReelDto reel, List<IndasEstimo.Application.DTOs.Masters.MachineSlabDto> slabs, List<FlexoPlanResult> plans, string grainDirection = "With Grain")
     {
-        // Use request values instead of hardcoded constants (user can change Bearer & Gap during planning)
-        double plateBearer = request.PlateBearer > 0 ? request.PlateBearer : PlateBearer; // Default to 15 if not provided
-        double rollWidthEffective = (double)reel.SizeW - ((plateBearer * 2) + (ColorStrip * 2) + request.GapAcross);
+        // Use request values directly (user can change Bearer & Gap during planning)
+        // Legacy Line 507: Gbl_Plate_Bearer = value from frontend (0 means 0, not fallback!)
+        // Legacy Line 448: Gbl_ColorStrip = value from frontend (column 15)
+        double plateBearer = request.PlateBearer;
+        double colorStrip = request.ColorStrip;
+        double rollWidthEffective = (double)reel.SizeW - ((plateBearer * 2) + (colorStrip * 2) + request.GapAcross);
         double machineMin = (double)(machine.MinSheetW ?? 0);
         double machineMax = (double)(machine.MaxSheetW ?? 0);
         double realWidth = (double)reel.SizeW;
@@ -413,10 +428,11 @@ public class FlexoCalculationService : IFlexoCalculationService
         List<FlexoPlanResult> plans,
         ReelDto? specificReel = null)
     {
-        // Use request values instead of hardcoded constants
-        double plateBearer = request.PlateBearer > 0 ? request.PlateBearer : PlateBearer;
+        // Use request values directly (Legacy: Gbl_Plate_Bearer & Gbl_ColorStrip = values from frontend)
+        double plateBearer = request.PlateBearer;
+        double colorStrip = request.ColorStrip;
         double machineMaxRoll = (double)(machine.MaxSheetW ?? 0);
-        double maxUsableCheck = machineMaxRoll - ((plateBearer * 2) + (ColorStrip * 2)); 
+        double maxUsableCheck = machineMaxRoll - ((plateBearer * 2) + (colorStrip * 2)); 
 
         // CRITICAL FIX: Use JobSizeH (height goes across roll width, like legacy Gbl_Label_H)
         int maxUpsW = (int)Math.Floor(maxUsableCheck / request.JobSizeH);
@@ -442,7 +458,7 @@ public class FlexoCalculationService : IFlexoCalculationService
 
         for (int i = maxUpsW; i >= 1; i--)
         {
-            double requiredWidth = (i * request.JobSizeH) + ((i - 1) * request.GapAcross) + (PlateBearer * 2) + (ColorStrip * 2);
+            double requiredWidth = (i * request.JobSizeH) + ((i - 1) * request.GapAcross) + (plateBearer * 2) + (colorStrip * 2);
             
             if (requiredWidth >= (double)(machine.MinSheetW ?? 0) && requiredWidth <= machineMaxRoll)
             {

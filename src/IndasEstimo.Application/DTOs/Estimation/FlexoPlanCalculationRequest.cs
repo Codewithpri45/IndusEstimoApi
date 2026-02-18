@@ -18,8 +18,8 @@ public class FlexoPlanCalculationRequest
     // Layout Constraints
     public int UpsAcross { get; set; } // Gbl_UPS_H (across roll width, uses JobSizeH)
     public int UpsAround { get; set; } // Gbl_UPS_L (around cylinder, uses JobSizeL)
-    public double GapAcross { get; set; } = 3.0; // Gbl_Standard_AC_Gap (default 3mm)
-    public double GapAround { get; set; } = 1.25; // Gbl_Standard_AR_Gap (default 1.25mm)
+    public double GapAcross { get; set; } // Gbl_Standard_AC_Gap (Legacy defaults to 3 only when DB value is NULL)
+    public double GapAround { get; set; } // Gbl_Standard_AR_Gap (Legacy defaults to 1.25 only when DB value is NULL)
     public double Bleed { get; set; } // Gbl_Bleed
 
     // Material Selection
@@ -78,6 +78,7 @@ public class FlexoPlanCalculationRequest
 
     // Plate & Layout Details (NEWLY ADDED - Feb 16, 2026)
     public double PlateBearer { get; set; } // PlanPlateBearer (Gbl_Plate_Bearer) - User can change during planning
+    public double ColorStrip { get; set; } // PlanColorStrip (Gbl_ColorStrip) - Legacy reads from frontend (column 15)
     public double MakeReadyWastage { get; set; } // PlanMakeReadyWastage (in meters)
 }
 

@@ -1,8 +1,7 @@
-
 using IndasEstimo.Application.Common;
 using IndasEstimo.Application.DTOs.Masters;
-using IndasEstimo.Application.Interfaces.Repositories.Masters;
-using IndasEstimo.Application.Interfaces.Services.Masters;
+using IndasEstimo.Application.Interfaces.Repositories;
+using IndasEstimo.Application.Interfaces.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IndasEstimo.Infrastructure.Services.Masters;
@@ -20,79 +19,265 @@ public class ProcessMasterService : IProcessMasterService
         _logger = logger;
     }
 
-    public async Task<Result<IEnumerable<ProcessDetailDto>>> GetProcessesAsync()
+    public async Task<Result<List<ProcessListDto>>> GetProcessListAsync()
     {
         try
         {
-            var list = await _repository.GetProcessesAsync();
-            return Result<IEnumerable<ProcessDetailDto>>.Success(list);
+            var result = await _repository.GetProcessListAsync();
+            return Result<List<ProcessListDto>>.Success(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting processes");
-            return Result<IEnumerable<ProcessDetailDto>>.Failure("Failed to get processes");
+            _logger.LogError(ex, "Error getting process list");
+            return Result<List<ProcessListDto>>.Failure($"Error: {ex.Message}");
         }
     }
 
-    public async Task<Result<long>> CreateProcessAsync(CreateProcessDto process)
+    public async Task<Result<List<ProcessNameDto>>> GetProcessNamesAsync()
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(process.ProcessName))
-                return Result<long>.Failure("Process Name is required");
-
-            var processId = await _repository.CreateProcessAsync(process);
-            return Result<long>.Success(processId);
+            var result = await _repository.GetProcessNamesAsync();
+            return Result<List<ProcessNameDto>>.Success(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating process");
-            return Result<long>.Failure("Failed to create process");
+            _logger.LogError(ex, "Error getting process names");
+            return Result<List<ProcessNameDto>>.Failure($"Error: {ex.Message}");
         }
     }
 
-    public async Task<Result<bool>> UpdateProcessAsync(UpdateProcessDto process)
-    {
-        try
-        {
-            var result = await _repository.UpdateProcessAsync(process);
-            return Result<bool>.Success(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating process {ProcessID}", process.ProcessID);
-            return Result<bool>.Failure("Failed to update process");
-        }
-    }
-
-    public async Task<Result<bool>> DeleteProcessAsync(long processId)
-    {
-        try
-        {
-            var result = await _repository.DeleteProcessAsync(processId);
-            return Result<bool>.Success(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting process {ProcessID}", processId);
-            return Result<bool>.Failure("Failed to delete process");
-        }
-    }
-
-    public async Task<Result<ProcessDetailDto>> GetProcessByIdAsync(long processId)
+    public async Task<Result<ProcessLoadedDataDto>> GetProcessByIdAsync(int processId)
     {
         try
         {
             var result = await _repository.GetProcessByIdAsync(processId);
-            if (result == null)
-                return Result<ProcessDetailDto>.Failure("Process not found");
-
-            return Result<ProcessDetailDto>.Success(result);
+            return Result<ProcessLoadedDataDto>.Success(result);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting process {ProcessID}", processId);
-            return Result<ProcessDetailDto>.Failure("Failed to get process");
+            return Result<ProcessLoadedDataDto>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<ProcessDepartmentDto>>> GetDepartmentsAsync()
+    {
+        try
+        {
+            var result = await _repository.GetDepartmentsAsync();
+            return Result<List<ProcessDepartmentDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting departments");
+            return Result<List<ProcessDepartmentDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<TypeOfChargesDto>>> GetTypeOfChargesAsync()
+    {
+        try
+        {
+            var result = await _repository.GetTypeOfChargesAsync();
+            return Result<List<TypeOfChargesDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting type of charges");
+            return Result<List<TypeOfChargesDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<UnitDto>>> GetUnitsAsync()
+    {
+        try
+        {
+            var result = await _repository.GetUnitsAsync();
+            return Result<List<UnitDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting units");
+            return Result<List<UnitDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<ProcessToolGroupDto>>> GetToolGroupListAsync()
+    {
+        try
+        {
+            var result = await _repository.GetToolGroupListAsync();
+            return Result<List<ProcessToolGroupDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting tool group list");
+            return Result<List<ProcessToolGroupDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<object>> GetMachineGridAsync()
+    {
+        try
+        {
+            var result = await _repository.GetMachineGridAsync();
+            return Result<object>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting machine grid");
+            return Result<object>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<object>> GetItemGridAsync()
+    {
+        try
+        {
+            var result = await _repository.GetItemGridAsync();
+            return Result<object>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting item grid");
+            return Result<object>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<object>> GetContentGridAsync()
+    {
+        try
+        {
+            var result = await _repository.GetContentGridAsync();
+            return Result<object>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting content grid");
+            return Result<object>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<ProcessSlabDto>>> GetExistingSlabsAsync(int processId)
+    {
+        try
+        {
+            var result = await _repository.GetExistingSlabsAsync(processId);
+            return Result<List<ProcessSlabDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting slabs for process {ProcessID}", processId);
+            return Result<List<ProcessSlabDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<ProcessMachineAllocationDto>>> GetAllocatedMachinesAsync(int processId)
+    {
+        try
+        {
+            var result = await _repository.GetAllocatedMachinesAsync(processId);
+            return Result<List<ProcessMachineAllocationDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting allocated machines for process {ProcessID}", processId);
+            return Result<List<ProcessMachineAllocationDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<ProcessMaterialAllocationDto>>> GetAllocatedMaterialsAsync(int processId)
+    {
+        try
+        {
+            var result = await _repository.GetAllocatedMaterialsAsync(processId);
+            return Result<List<ProcessMaterialAllocationDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting allocated materials for process {ProcessID}", processId);
+            return Result<List<ProcessMaterialAllocationDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<ProcessInspectionParameterDto>>> GetInspectionParametersAsync(int processId)
+    {
+        try
+        {
+            var result = await _repository.GetInspectionParametersAsync(processId);
+            return Result<List<ProcessInspectionParameterDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting inspection parameters for process {ProcessID}", processId);
+            return Result<List<ProcessInspectionParameterDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<List<ProcessLineClearanceParameterDto>>> GetLineClearanceParametersAsync(int processId)
+    {
+        try
+        {
+            var result = await _repository.GetLineClearanceParametersAsync(processId);
+            return Result<List<ProcessLineClearanceParameterDto>>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting line clearance parameters for process {ProcessID}", processId);
+            return Result<List<ProcessLineClearanceParameterDto>>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<string>> SaveProcessAsync(SaveProcessRequest request)
+    {
+        try
+        {
+            if (request.ProcessDetail == null || string.IsNullOrWhiteSpace(request.ProcessDetail.ProcessName))
+            {
+                return Result<string>.Failure("Process name is required");
+            }
+
+            var result = await _repository.SaveProcessAsync(request);
+            return Result<string>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving process");
+            return Result<string>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<string>> UpdateProcessAsync(UpdateProcessRequest request)
+    {
+        try
+        {
+            if (request.ProcessID <= 0)
+            {
+                return Result<string>.Failure("Process ID is required");
+            }
+
+            var result = await _repository.UpdateProcessAsync(request);
+            return Result<string>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating process {ProcessID}", request.ProcessID);
+            return Result<string>.Failure($"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<string>> DeleteProcessAsync(int processId)
+    {
+        try
+        {
+            var result = await _repository.DeleteProcessAsync(processId);
+            return Result<string>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting process {ProcessID}", processId);
+            return Result<string>.Failure($"Error: {ex.Message}");
         }
     }
 }
