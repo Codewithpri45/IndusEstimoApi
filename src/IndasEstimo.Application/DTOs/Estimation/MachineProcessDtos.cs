@@ -21,6 +21,7 @@ public class MachineGridDto
     public decimal Speed { get; set; } // Legacy: 24
     public decimal RollChangeWastage { get; set; } // Legacy: 34
     public decimal StandardRollLength { get; set; } // Legacy: 35
+    public decimal MakeReadyWastageRunningMeter { get; set; } // Legacy: 30
 
     // Cylinder/Tool Details (Gap #2 - From LEFT JOIN with MachineToolAllocationMaster)
     // Legacy columns: 38-45 (ToolID, ToolCode, Manufecturer, CylinderWidth, NoOfTeeth, CircumferenceMM, etc.)

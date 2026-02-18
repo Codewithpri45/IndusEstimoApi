@@ -237,14 +237,16 @@ public class MasterDataRepository : IMasterDataRepository
 
         string query = @"
             SELECT 
-                CategoryID,
+                CategoryID, 
+                CategoryName, 
+                CategoryID, 
                 CategoryName,
-                '' AS DefaultPrint,
-                0.0 AS DefaultWastage,
-                '' AS WastageType,
-                0 AS DefaultColors
-            FROM CategoryMaster
-            WHERE CategoryID = @CategoryID
+                ISNULL(DefaultAcrossGap, 0) AS DefaultAcrossGap,
+                ISNULL(DefaultAroundGap, 0) AS DefaultAroundGap,
+                ISNULL(DefaultPlateBearer, 0) AS DefaultPlateBearer,
+                ISNULL(DefaultSideStrip, 0) AS DefaultSideStrip
+            FROM CategoryMaster 
+            WHERE CategoryID = @CategoryID 
               AND CompanyID = @CompanyID
               AND ISNULL(IsDeletedTransaction, 0) = 0";
 

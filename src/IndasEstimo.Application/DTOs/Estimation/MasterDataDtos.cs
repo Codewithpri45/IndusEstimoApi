@@ -43,6 +43,10 @@ public class ContentDto
     public string? ContentClosedHref { get; set; }
     public string? ContentSizes { get; set; }
     public string? ContentDomainType { get; set; }
+    public decimal DefaultAcrossGap { get; set; }
+    public decimal DefaultAroundGap { get; set; }
+    public decimal DefaultPlateBearer { get; set; }
+    public decimal DefaultSideStrip { get; set; }
     public string? CategoryName { get; set; }
     public string? SegmentName { get; set; }
 }
@@ -63,11 +67,11 @@ public class ContentByCategoryDto
 public class CategoryDefaultsDto
 {
     public long CategoryID { get; set; }
-    public string? DefaultPrint { get; set; }
-    public decimal DefaultWastage { get; set; }
-    public string? WastageType { get; set; }
-   public int? DefaultColors { get; set; }
     public string? CategoryName { get; set; }
+    public decimal DefaultAcrossGap { get; set; }
+    public decimal DefaultAroundGap { get; set; }
+    public decimal DefaultPlateBearer { get; set; }
+    public decimal DefaultSideStrip { get; set; }
 }
 
 /// <summary>

@@ -62,6 +62,7 @@ public class MachineProcessRepository : IMachineProcessRepository
                 ISNULL(MM.RollChangeTime, 0) AS RollChangeOverTime,
                 ISNULL(MM.MachineSpeed, 0) AS Speed,
                 ISNULL(MM.AverageRollChangeWastage, 0) AS RollChangeWastage,
+                ISNULL(MM.MakeReadyWastageRunningMeter, 0) AS MakeReadyWastageRunningMeter,
                 ISNULL(MM.AverageRollLength, 0) AS StandardRollLength,
                 ISNULL(MM.MinCircumference, 0) AS MinCircumferenceMM,
                 ISNULL(MM.MaxCircumference, 0) AS MaxCircumferenceMM,

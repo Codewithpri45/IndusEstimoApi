@@ -494,6 +494,12 @@ public class FlexoCalculationService : IFlexoCalculationService
         int totalUps = plan.UpsAcross * plan.UpsAround;
         plan.TotalUps = totalUps;
 
+        // FIX: Prioritize User Input (MakeReadyWastage) > Machine Default
+        // This resolves the build error 'name makeReadyWastage does not exist'
+        double makeReadyWastage = request.MakeReadyWastage > 0 
+                                  ? request.MakeReadyWastage 
+                                  : (double)machine.MakeReadyWastageRunningMeter;
+
         if (totalUps == 0) return;
 
         // 1. CRITICAL FIX: Calculate Impressions FIRST (not running meters)
@@ -530,22 +536,6 @@ public class FlexoCalculationService : IFlexoCalculationService
         // 2. Wastage Parameters & Slab Selection
         decimal ratePerRun = 0;
         double slabPlateCharges = 0;
-        double makeReadyWastage = 50; // Fallback
-
-        // Find Slab based on Job Metrics
-        _logger.LogInformation($"[Slab Lookup] ReqMeters={reqRunningMeters:F2}, Available Slabs={slabs.Count}");
-
-        var slab = slabs.FirstOrDefault(s => reqRunningMeters >= (double)s.RunningMeterRangeFrom && reqRunningMeters <= (double)s.RunningMeterRangeTo);
-
-        if (slab != null)
-        {
-            makeReadyWastage = (double)slab.Wastage;
-            ratePerRun = slab.Rate;
-            slabPlateCharges = (double)slab.PlateCharges;
-
-            _logger.LogInformation($"[Slab Found] Range={slab.RunningMeterRangeFrom}-{slab.RunningMeterRangeTo}, Wastage={makeReadyWastage}m, Rate={ratePerRun}");
-        }
-        else
         {
             _logger.LogWarning($"[Slab NOT Found] Using fallback wastage={makeReadyWastage}m. ReqMeters={reqRunningMeters:F2}");
 
