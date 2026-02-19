@@ -51,69 +51,81 @@ public class LedgerMasterRepository : ILedgerMasterRepository
     public async Task<List<LedgerMasterListDto>> GetMasterListAsync()
     {
         using var connection = GetConnection();
-        var userId = _currentUserService.GetUserId() ?? 0;
 
         var sql = @"
-            SELECT DISTINCT
-                IGM.LedgerGroupID,
-                IGM.LedgerGroupName,
-                NULLIF(IGM.LedgerGroupNameDisplay,'') as LedgerGroupNameDisplay,
-                NULLIF(IGM.LedgerGroupNameID,'') as LedgerGroupNameID
-            FROM LedgerGroupMaster As IGM
-            INNER JOIN UserSubModuleAuthentication As UMA
-                ON UMA.LedgerGroupID = IGM.LedgerGroupID
-                AND UMA.CompanyID = IGM.CompanyID
-                AND UMA.CanView = 1
-            WHERE IGM.IsDeletedTransaction = 0
-                AND UMA.UserID = @UserID
-            ORDER BY IGM.LedgerGroupID";
+            SELECT
+                LedgerGroupID,
+                LedgerGroupName,
+                NULLIF(LedgerGroupNameDisplay,'') as LedgerGroupNameDisplay,
+                NULLIF(LedgerGroupNameID,'') as LedgerGroupNameID
+            FROM LedgerGroupMaster
+            WHERE ISNULL(IsDeletedTransaction, 0) = 0
+            ORDER BY LedgerGroupID";
 
-        var result = await connection.QueryAsync<LedgerMasterListDto>(sql, new { UserID = userId });
+        var result = await connection.QueryAsync<LedgerMasterListDto>(sql);
         return result.ToList();
     }
 
     public async Task<object> GetMasterGridAsync(string masterID)
     {
         using var connection = GetConnection();
-        var companyId = _currentUserService.GetCompanyId() ?? 0;
 
-        // Get dynamic query from LedgerGroupMaster
+        // Step 1: Get SelectQuery from LedgerGroupMaster
         var queryConfigSql = @"
             SELECT NULLIF(SelectQuery, '') as SelectQuery
             FROM LedgerGroupMaster
             WHERE LedgerGroupID = @MasterID
             AND ISNULL(IsDeletedTransaction, 0) <> 1";
 
-        var queryConfig = await connection.QueryFirstOrDefaultAsync<string>(
+        var selectQuery = await connection.QueryFirstOrDefaultAsync<string>(
             queryConfigSql,
             new { MasterID = masterID });
 
-        _logger.LogDebug("GetMasterGridAsync - MasterID: {MasterID}, QueryConfig: {QueryConfig}", masterID, queryConfig);
-
-        if (string.IsNullOrEmpty(queryConfig))
+        if (string.IsNullOrEmpty(selectQuery))
         {
             _logger.LogWarning("GetMasterGridAsync - No SelectQuery found for MasterID {MasterID}", masterID);
             return new List<object>();
         }
 
-        // Execute dynamic query (preserve existing logic from VB code)
+        // Step 2: Get the actual CompanyID from LedgerMaster data for this group
+        // This is the REAL CompanyID stored in the data, which the proc needs to filter correctly
+        var companyIdSql = @"
+            SELECT TOP 1 ISNULL(CompanyID, 0)
+            FROM LedgerMaster
+            WHERE LedgerGroupID = @MasterID
+            AND ISNULL(IsDeletedTransaction, 0) = 0";
+
+        var dataCompanyId = await connection.QueryFirstOrDefaultAsync<long>(
+            companyIdSql,
+            new { MasterID = masterID });
+
+        // Fall back to JWT claim if no data found
+        var companyId = dataCompanyId > 0
+            ? dataCompanyId
+            : (_currentUserService.GetCompanyId() ?? 0);
+
+        _logger.LogDebug("GetMasterGridAsync - MasterID: {MasterID}, SelectQuery: {SelectQuery}, CompanyID: {CompanyID}",
+            masterID, selectQuery, companyId);
+
+        // Step 3: Build exec SQL — proc signature: GetLedgerMasterData @TblName, @CompanyID, @LedgerGroupID
         string executeSql;
-        if (queryConfig.ToUpper().Contains("EXECUTE"))
+        if (selectQuery.TrimEnd().ToUpper().EndsWith("GETLEDGERMASTERDATA") ||
+            selectQuery.ToUpper().Contains("EXECUTE"))
         {
-            executeSql = queryConfig + " @TblName='', @LedgerGroupID=" + masterID + ", @CompanyID=" + companyId;
+            // Pass CompanyID as integer (no quotes), TblName as empty string
+            executeSql = "EXECUTE GetLedgerMasterData '', " + companyId + ", " + masterID;
         }
         else
         {
-            executeSql = queryConfig;
+            executeSql = selectQuery;
         }
 
         _logger.LogDebug("GetMasterGridAsync - Executing SQL: {SQL}", executeSql);
 
         try
         {
-            // Execute and return dynamic results, filter out soft-deleted items
             var result = await connection.QueryAsync<dynamic>(executeSql);
-            return result.Where(r =>
+            var filtered = result.Where(r =>
             {
                 var dict = (IDictionary<string, object>)r;
                 if (dict.TryGetValue("IsDeletedTransaction", out var val))
@@ -122,6 +134,8 @@ public class LedgerMasterRepository : ILedgerMasterRepository
                 }
                 return true;
             }).ToList();
+            _logger.LogDebug("GetMasterGridAsync - Row count: {Count}", filtered.Count);
+            return filtered;
         }
         catch (Exception ex)
         {
@@ -165,7 +179,7 @@ public class LedgerMasterRepository : ILedgerMasterRepository
     public async Task<List<LedgerMasterFieldDto>> GetMasterFieldsAsync(string masterID)
     {
         var sql = @"
-            SELECT
+            SELECT DISTINCT
                 NULLIF(LedgerGroupFieldID,'') as LedgerGroupFieldID,
                 NULLIF(LedgerGroupID,'') as LedgerGroupID,
                 NULLIF(FieldName,'') as FieldName,
@@ -189,7 +203,11 @@ public class LedgerMasterRepository : ILedgerMasterRepository
                 NULLIF(SelectBoxDefault,'') as SelectBoxDefault,
                 NULLIF(ControllValidation,'') as ControllValidation,
                 NULLIF(FieldFormulaString,'') as FieldFormulaString,
-                NULLIF(IsRequiredFieldValidator,'') as IsRequiredFieldValidator
+                NULLIF(IsRequiredFieldValidator,'') as IsRequiredFieldValidator,
+                NULLIF(UnitMeasurement,'') as UnitMeasurement,
+                IsLocked,
+                ISNULL(MinimumValue, 0) AS MinimumValue,
+                ISNULL(MaximumValue, 0) AS MaximumValue
             FROM LedgerGroupFieldMaster
             WHERE LedgerGroupID = @MasterID
             AND ISNULL(IsDeletedTransaction, 0) <> 1
@@ -857,60 +875,102 @@ public class LedgerMasterRepository : ILedgerMasterRepository
 
     public async Task<object> SelectBoxLoadAsync(JArray jsonData)
     {
-        using var connection = GetConnection();
         var dataset = new Dictionary<string, List<dynamic>>();
+
+        var querySql = @"
+            SELECT NULLIF(SelectboxQueryDB, '') as SelectboxQueryDB,
+                   NULLIF(SelectBoxDefault, '') as SelectBoxDefault
+            FROM LedgerGroupFieldMaster
+            WHERE LedgerGroupFieldID = @FieldID
+            AND ISNULL(IsDeletedTransaction, 0) <> 1";
 
         for (int i = 0; i < jsonData.Count; i++)
         {
-            var fieldId = jsonData[i]["FieldID"]?.ToString();
+            // Accept LedgerGroupFieldID (from master-fields response) or FieldID (Postman/direct)
+            var fieldId = jsonData[i]["LedgerGroupFieldID"]?.ToString();
+            if (string.IsNullOrEmpty(fieldId))
+                fieldId = jsonData[i]["FieldID"]?.ToString();
+
             var fieldName = jsonData[i]["FieldName"]?.ToString();
 
             if (string.IsNullOrEmpty(fieldId) || string.IsNullOrEmpty(fieldName))
                 continue;
 
-            // Get dynamic query for this field
-            var querySql = @"
-                SELECT NULLIF(SelectboxQueryDB, '') as SelectboxQueryDB
-                FROM LedgerGroupFieldMaster
-                WHERE LedgerGroupFieldID = @FieldID
-                AND ISNULL(IsDeletedTransaction, 0) <> 1";
+            // Try tenant DB first (where most ledger data lives), fall back to master DB
+            dynamic? fieldConfig = null;
+            using (var tenantConn = GetConnection())
+            {
+                fieldConfig = await tenantConn.QueryFirstOrDefaultAsync<dynamic>(querySql, new { FieldID = fieldId });
+            }
+            // Fallback: try master DB (IndusEnterpriseMonarch)
+            if (fieldConfig == null)
+            {
+                using var masterConn = _connectionFactory.CreateMasterConnection();
+                fieldConfig = await masterConn.QueryFirstOrDefaultAsync<dynamic>(querySql, new { FieldID = fieldId });
+            }
 
-            var query = await connection.QueryFirstOrDefaultAsync<string>(
-                querySql, new { FieldID = fieldId });
-
-            if (string.IsNullOrEmpty(query))
+            if (fieldConfig == null)
                 continue;
 
-            // Replace # with '
-            query = query.Replace("#", "'");
-            var companyId = _currentUserService.GetCompanyId() ?? 0;
-            query = query.Replace("'CompanyID'", $"'{companyId}'");
+            string? query = (string?)fieldConfig.SelectboxQueryDB;
+            string? defaults = (string?)fieldConfig.SelectBoxDefault;
 
-            try
+            var resultList = new List<dynamic>();
+
+            // 1. Execute dynamic query if available (returns full rows with ID + display columns)
+            if (!string.IsNullOrEmpty(query))
             {
-                // Execute dynamic dropdown query
-                var data = await connection.QueryAsync<dynamic>(query);
-                var dataList = data.ToList();
+                query = query.Replace("#", "'");
+                var companyId = _currentUserService.GetCompanyId() ?? 0;
+                query = query.Replace("'CompanyID'", $"'{companyId}'");
 
-                // Add field name as first row if 2 columns (preserve legacy logic)
-                if (dataList.Count > 0)
+                List<dynamic> dataList = new();
+
+                // Try tenant DB first (LedgerMaster-based queries like RefSalesRepresentativeID)
+                try
                 {
-                    var firstItem = (IDictionary<string, object>)dataList[0];
-                    if (firstItem.Count == 2)
+                    using var tenantConn = GetConnection();
+                    var data = await tenantConn.QueryAsync<dynamic>(query);
+                    dataList = data.ToList();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "SelectBox tenant DB query failed for field {FieldName}, trying master DB", fieldName);
+                }
+
+                // Fallback to master DB (CountryStateMaster etc. are in master DB)
+                if (dataList.Count == 0)
+                {
+                    try
                     {
-                        var dynamicItem = new System.Dynamic.ExpandoObject() as IDictionary<string, object>;
-                        dynamicItem[firstItem.Keys.ElementAt(0)] = firstItem.Values.ElementAt(0);
-                        dynamicItem[firstItem.Keys.ElementAt(1)] = fieldName;
-                        dataList.Insert(0, dynamicItem);
+                        using var masterConn = _connectionFactory.CreateMasterConnection();
+                        var data = await masterConn.QueryAsync<dynamic>(query);
+                        dataList = data.ToList();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "SelectBox master DB query failed for field {FieldName}, query: {Query}", fieldName, query);
                     }
                 }
 
-                dataset.Add($"tbl_{fieldName}", dataList);
+                resultList.AddRange(dataList);
             }
-            catch (Exception ex)
+
+            // 2. If no query results, use SelectBoxDefault (comma-separated values)
+            if (resultList.Count == 0 && !string.IsNullOrEmpty(defaults))
             {
-                _logger.LogError(ex, "Error executing selectbox query for field {FieldName}", fieldName);
+                foreach (var val in defaults.Split(','))
+                {
+                    var trimmed = val.Trim();
+                    if (string.IsNullOrEmpty(trimmed)) continue;
+                    var item = new System.Dynamic.ExpandoObject() as IDictionary<string, object>;
+                    item[fieldName] = trimmed;
+                    resultList.Add(item);
+                }
             }
+
+            if (resultList.Count > 0)
+                dataset.Add($"tbl_{fieldName}", resultList);
         }
 
         return dataset;
