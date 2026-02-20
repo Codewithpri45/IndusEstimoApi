@@ -52,7 +52,7 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
     public async Task<List<QualityDto>> GetQualityAsync(string contentType)
     {
         using var connection = GetConnection();
-        
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
         var itemGroupNameId = GetItemGroupNameId(contentType);
 
         string query = $@"
@@ -63,19 +63,21 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                   SELECT ItemGroupID 
                   FROM ItemGroupMaster 
                   WHERE ItemGroupNameID IN ({itemGroupNameId})
+                    AND CompanyID = @CompanyID
               )
               AND ISNULL(IsDeletedTransaction, 0) = 0 
               AND ISNULL(Quality, '') <> '' 
+              AND CompanyID = @CompanyID
             ORDER BY Quality";
 
-        var results = await connection.QueryAsync<QualityDto>(query);
+        var results = await connection.QueryAsync<QualityDto>(query, new { CompanyID = companyId });
         return results.ToList();
     }
 
     public async Task<List<GsmDto>> GetGsmAsync(string contentType, string? quality, decimal thickness)
     {
         using var connection = GetConnection();
-        
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
         var itemGroupNameId = GetItemGroupNameId(contentType);
         
         string query;
@@ -90,10 +92,15 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                       SELECT ItemGroupID 
                       FROM ItemGroupMaster 
                       WHERE ItemGroupNameID IN ({itemGroupNameId})
+                        AND CompanyID = @CompanyID
                   )
                   AND ISNULL(IsDeletedTransaction, 0) = 0 
-                  AND (ISNULL(GSM, 0) > 0 OR ISNULL(Thickness, 0) > 0) 
+                  AND (ISNULL(GSM, 0) > 0 OR ISNULL(Thickness, 0) > 0)
+                  AND CompanyID = @CompanyID
                 ORDER BY GSM";
+
+            var resultList = await connection.QueryAsync<GsmDto>(query, new { CompanyID = companyId });
+            return resultList.ToList();
         }
         else
         {
@@ -107,6 +114,7 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                           SELECT ItemGroupID 
                           FROM ItemGroupMaster 
                           WHERE ItemGroupNameID IN ({itemGroupNameId})
+                            AND CompanyID = @CompanyID
                       )
                       AND ItemID IN (
                           SELECT ItemID 
@@ -114,11 +122,13 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                           WHERE IsDeletedTransaction = 0 
                             AND Quality = @Quality 
                             AND Thickness = @Thickness
+                            AND CompanyID = @CompanyID
                       )
                       AND ISNULL(IsDeletedTransaction, 0) <> 1 
+                      AND CompanyID = @CompanyID
                     ORDER BY GSM";
                 
-                var results = await connection.QueryAsync<GsmDto>(query, new { Quality = quality, Thickness = thickness });
+                var results = await connection.QueryAsync<GsmDto>(query, new { Quality = quality, Thickness = thickness, CompanyID = companyId });
                 return results.ToList();
             }
             else
@@ -131,29 +141,29 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                           SELECT ItemGroupID 
                           FROM ItemGroupMaster 
                           WHERE ItemGroupNameID IN ({itemGroupNameId})
+                            AND CompanyID = @CompanyID
                       )
                       AND ItemID IN (
                           SELECT ItemID 
                           FROM ItemMaster 
                           WHERE IsDeletedTransaction = 0 
                             AND Quality = @Quality
+                            AND CompanyID = @CompanyID
                       )
                       AND ISNULL(IsDeletedTransaction, 0) <> 1 
+                      AND CompanyID = @CompanyID
                     ORDER BY GSM";
                 
-                var results = await connection.QueryAsync<GsmDto>(query, new { Quality = quality });
+                var results = await connection.QueryAsync<GsmDto>(query, new { Quality = quality, CompanyID = companyId });
                 return results.ToList();
             }
         }
-
-        var resultList = await connection.QueryAsync<GsmDto>(query);
-        return resultList.ToList();
     }
 
     public async Task<List<ThicknessDto>> GetThicknessAsync(string contentType, string? quality)
     {
         using var connection = GetConnection();
-        
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
         var itemGroupNameId = GetItemGroupNameId(contentType);
         
         string query;
@@ -168,10 +178,15 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                       SELECT ItemGroupID 
                       FROM ItemGroupMaster 
                       WHERE ItemGroupNameID IN ({itemGroupNameId})
+                        AND CompanyID = @CompanyID
                   )
                   AND ISNULL(IsDeletedTransaction, 0) = 0 
                   AND ISNULL(Thickness, 0) > 0 
+                  AND CompanyID = @CompanyID
                 ORDER BY Thickness";
+
+            var resultList = await connection.QueryAsync<ThicknessDto>(query, new { CompanyID = companyId });
+            return resultList.ToList();
         }
         else
         {
@@ -183,28 +198,28 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                       SELECT ItemGroupID 
                       FROM ItemGroupMaster 
                       WHERE ItemGroupNameID IN ({itemGroupNameId})
+                        AND CompanyID = @CompanyID
                   )
                   AND ItemID IN (
                       SELECT ItemID 
                       FROM ItemMaster 
                       WHERE IsDeletedTransaction = 0 
                         AND Quality = @Quality
+                        AND CompanyID = @CompanyID
                   )
                   AND ISNULL(IsDeletedTransaction, 0) <> 1 
+                  AND CompanyID = @CompanyID
                 ORDER BY Thickness";
             
-            var results = await connection.QueryAsync<ThicknessDto>(query, new { Quality = quality });
+            var results = await connection.QueryAsync<ThicknessDto>(query, new { Quality = quality, CompanyID = companyId });
             return results.ToList();
         }
-
-        var resultList = await connection.QueryAsync<ThicknessDto>(query);
-        return resultList.ToList();
     }
 
     public async Task<List<MillDto>> GetMillAsync(string contentType, string? quality, decimal gsm, decimal thickness)
     {
         using var connection = GetConnection();
-        
+        var companyId = _currentUserService.GetCompanyId() ?? 0;
         var itemGroupNameId = GetItemGroupNameId(contentType);
         
         string query;
@@ -219,10 +234,15 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                       SELECT ItemGroupID 
                       FROM ItemGroupMaster 
                       WHERE ItemGroupNameID IN ({itemGroupNameId})
+                        AND CompanyID = @CompanyID
                   )
                   AND ISNULL(IsDeletedTransaction, 0) <> 1 
                   AND ISNULL(Manufecturer, '') <> '' 
+                  AND CompanyID = @CompanyID
                 ORDER BY Mill";
+
+            var resultList = await connection.QueryAsync<MillDto>(query, new { CompanyID = companyId });
+            return resultList.ToList();
         }
         else
         {
@@ -236,23 +256,27 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                           SELECT ItemGroupID 
                           FROM ItemGroupMaster 
                           WHERE ItemGroupNameID IN ({itemGroupNameId})
+                            AND CompanyID = @CompanyID
                       )
                       AND ItemID IN (
                           SELECT ItemID 
                           FROM ItemMaster 
                           WHERE Quality = @Quality 
                             AND IsDeletedTransaction = 0
+                            AND CompanyID = @CompanyID
                       )
                       AND ItemID IN (
                           SELECT ItemID 
                           FROM ItemMaster 
                           WHERE GSM = @GSM 
                             AND IsDeletedTransaction = 0
+                            AND CompanyID = @CompanyID
                       )
                       AND ISNULL(IsDeletedTransaction, 0) <> 1 
+                      AND CompanyID = @CompanyID
                     ORDER BY Mill";
                 
-                var results = await connection.QueryAsync<MillDto>(query, new { Quality = quality, GSM = gsm });
+                var results = await connection.QueryAsync<MillDto>(query, new { Quality = quality, GSM = gsm, CompanyID = companyId });
                 return results.ToList();
             }
             else if (!string.IsNullOrEmpty(quality) && thickness > 0)
@@ -265,23 +289,27 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                           SELECT ItemGroupID 
                           FROM ItemGroupMaster 
                           WHERE ItemGroupNameID IN ({itemGroupNameId})
+                            AND CompanyID = @CompanyID
                       )
                       AND ItemID IN (
                           SELECT ItemID 
                           FROM ItemMaster 
                           WHERE Quality = @Quality 
                             AND IsDeletedTransaction = 0
+                            AND CompanyID = @CompanyID
                       )
                       AND ItemID IN (
                           SELECT ItemID 
                           FROM ItemMaster 
                           WHERE Thickness = @Thickness 
                             AND IsDeletedTransaction = 0
+                            AND CompanyID = @CompanyID
                       )
                       AND ISNULL(IsDeletedTransaction, 0) <> 1 
+                      AND CompanyID = @CompanyID
                     ORDER BY Mill";
                 
-                var results = await connection.QueryAsync<MillDto>(query, new { Quality = quality, Thickness = thickness });
+                var results = await connection.QueryAsync<MillDto>(query, new { Quality = quality, Thickness = thickness, CompanyID = companyId });
                 return results.ToList();
             }
             else
@@ -294,29 +322,30 @@ public class MaterialSelectionRepository : IMaterialSelectionRepository
                           SELECT ItemGroupID 
                           FROM ItemGroupMaster 
                           WHERE ItemGroupNameID IN ({itemGroupNameId})
+                            AND CompanyID = @CompanyID
                       )
                       AND ItemID IN (
                           SELECT ItemID 
                           FROM ItemMaster 
                           WHERE Quality = @Quality 
                             AND IsDeletedTransaction = 0
+                            AND CompanyID = @CompanyID
                       )
                       AND ItemID IN (
                           SELECT ItemID 
                           FROM ItemMaster 
                           WHERE GSM = @GSM 
                             AND IsDeletedTransaction = 0
+                            AND CompanyID = @CompanyID
                       )
                       AND ISNULL(IsDeletedTransaction, 0) <> 1 
+                      AND CompanyID = @CompanyID
                     ORDER BY Mill";
                 
-                var results = await connection.QueryAsync<MillDto>(query, new { Quality = quality, GSM = gsm });
+                var results = await connection.QueryAsync<MillDto>(query, new { Quality = quality, GSM = gsm, CompanyID = companyId });
                 return results.ToList();
             }
         }
-
-        var resultList = await connection.QueryAsync<MillDto>(query);
-        return resultList.ToList();
     }
 
     public async Task<List<FinishDto>> GetFinishAsync(string? quality, decimal gsm, string? mill)

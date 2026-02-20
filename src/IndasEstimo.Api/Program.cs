@@ -156,6 +156,8 @@ builder.Services.AddScoped<IUnitMasterRepository, UnitMasterRepository>();
 builder.Services.AddScoped<IUnitMasterService, UnitMasterService>();
 builder.Services.AddScoped<IProductGroupMasterRepository, ProductGroupMasterRepository>();
 builder.Services.AddScoped<IProductGroupMasterService, ProductGroupMasterService>();
+builder.Services.AddScoped<IProductionUnitMasterRepository, ProductionUnitMasterRepository>();
+builder.Services.AddScoped<IProductionUnitMasterService, ProductionUnitMasterService>();
 
 
 // ===== Security Services =====

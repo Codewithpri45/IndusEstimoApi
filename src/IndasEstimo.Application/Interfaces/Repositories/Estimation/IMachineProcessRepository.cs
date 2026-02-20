@@ -9,7 +9,7 @@ public interface IMachineProcessRepository
 {
     Task<List<MachineGridDto>> GetMachineGridAsync(string contentDomainType);
     Task<List<MachineDto>> GetAllMachinesAsync();
-    Task<List<OperationDto>> GetDefaultOperationsAsync(string domainType);
+    Task<List<OperationDto>> GetDefaultOperationsAsync(string domainType, int? categoryId = null);
     Task<List<OperationSlabDto>> GetOperationSlabsAsync(long processId);
     Task<List<MachineItemDto>> GetMachineItemsAsync(long machineId);
     Task<List<DieToolDto>> GetMachineToolsAsync(long machineId);

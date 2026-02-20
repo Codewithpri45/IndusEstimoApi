@@ -10,7 +10,7 @@ public interface IMachineProcessService
 {
     Task<Result<List<MachineGridDto>>> GetMachineGridAsync(string contentDomainType);
     Task<Result<List<MachineDto>>> GetAllMachinesAsync();
-    Task<Result<List<OperationDto>>> GetDefaultOperationsAsync(string domainType);
+    Task<Result<List<OperationDto>>> GetDefaultOperationsAsync(string domainType, int? categoryId = null);
     Task<Result<List<OperationSlabDto>>> GetOperationSlabsAsync(long processId);
     Task<Result<List<MachineItemDto>>> GetMachineItemsAsync(long machineId);
 }

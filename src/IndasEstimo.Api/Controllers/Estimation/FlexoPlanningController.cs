@@ -453,9 +453,9 @@ public class FlexoPlanningController : ControllerBase
     [ProducesResponseType(typeof(List<OperationDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetDefaultOperations(string domainType)
+    public async Task<IActionResult> GetDefaultOperations(string domainType, [FromQuery] int? categoryId = null)
     {
-        var result = await _machineService.GetDefaultOperationsAsync(domainType);
+        var result = await _machineService.GetDefaultOperationsAsync(domainType, categoryId);
         if (!result.IsSuccess) return BadRequest(new { message = result.ErrorMessage });
         return Ok(result.Data);
     }

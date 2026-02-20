@@ -44,33 +44,41 @@ public class ToolMaterialRepository : IToolMaterialRepository
 
         string query = @"
             SELECT 
-                ToolID,
-                ToolCode,
-                ToolName,
-                ToolType,
-                ISNULL(SizeL, 0) AS SizeL,
-                ISNULL(SizeW, 0) AS SizeW,
-                ISNULL(SizeH, 0) AS SizeH,
-                ISNULL(CircumferenceInch, 0) AS CircumferenceInch,
-                ISNULL(CircumferenceMM, 0) AS CircumferenceMM,
-                ISNULL(NoOfTeeth, 0) AS NoOfTeeth,
-                ISNULL(ToolRate, 0) AS ToolRate
-            FROM ToolMaster
-            WHERE CompanyID = @CompanyID
-              AND ISNULL(IsDeletedTransaction, 0) = 0
-              AND (
-                  (SizeL >= @SizeL AND SizeW >= @SizeW)
-                  OR (SizeL >= @SizeW AND SizeW >= @SizeL)
-              )
-              AND (@ToolType IS NULL OR ToolType = @ToolType)
-            ORDER BY ToolCode";
+                TM.ToolID,
+                NULLIF(TM.ToolCode, '') AS ToolCode,
+                NULLIF(TM.ToolName, '') AS ToolName,
+                NULLIF(TM.ToolDescription, '') AS ToolDescription,
+                ISNULL(TM.LedgerName, '-') AS LedgerName,
+                ISNULL(TM.SizeL, 0) AS SizeL,
+                ISNULL(TM.SizeW, 0) AS SizeW,
+                ISNULL(TM.SizeH, 0) AS SizeH,
+                ISNULL(TM.UpsL, 0) AS UpsL,
+                ISNULL(TM.UpsW, 0) AS UpsW,
+                ISNULL(TM.TotalUps, 0) AS TotalUps,
+                TM.Manufecturer,
+                ISNULL(TM.CircumferenceInch, 0) AS CircumferenceInch,
+                ISNULL(TM.CircumferenceMM, 0) AS CircumferenceMM,
+                ISNULL(TM.NoOfTeeth, 0) AS NoOfTeeth,
+                ISNULL(TM.ToolRate, 0) AS ToolRate
+            FROM ToolMaster AS TM
+            INNER JOIN ToolGroupMaster AS TG ON TM.ToolGroupID = TG.ToolGroupID
+            WHERE TG.ToolGroupNameID IN (-3, -8)
+              AND TM.CompanyID = @CompanyID
+              AND ISNULL(TM.IsDeletedTransaction, 0) = 0
+              AND (TM.SizeL >= (@SizeL - @SizeLTolerance) AND TM.SizeL <= (@SizeL + @SizeLTolerance))
+              AND (TM.SizeW >= (@SizeW - @SizeWTolerance) AND TM.SizeW <= (@SizeW + @SizeWTolerance))
+              AND (TM.SizeH >= (@SizeH - @SizeHTolerance) AND TM.SizeH <= (@SizeH + @SizeHTolerance))
+            ORDER BY TM.ToolCode";
 
         var results = await connection.QueryAsync<DieToolDto>(query, new
         {
             CompanyID = companyId,
             SizeL = request.SizeL,
+            SizeLTolerance = request.SizeLTolerance,
             SizeW = request.SizeW,
-            ToolType = request.ToolType
+            SizeWTolerance = request.SizeWTolerance,
+            SizeH = request.SizeH,
+            SizeHTolerance = request.SizeHTolerance
         });
         return results.ToList();
     }
@@ -247,31 +255,49 @@ public class ToolMaterialRepository : IToolMaterialRepository
         using var connection = GetConnection();
         var companyId = _currentUserService.GetCompanyId() ?? 0;
 
-        // Convert comma-separated IDs to list for IN clause
+        // Legacy query with CTE for first allocated machine per process
         string query = $@"
-            SELECT DISTINCT
+            WITH RankedMachines AS (
+                SELECT ProcessID, MachineID, 
+                       ROW_NUMBER() OVER (PARTITION BY ProcessID ORDER BY MachineID) AS rn 
+                FROM ProcessAllocatedMachineMaster
+            )
+            SELECT 
+                PM.ProcessID,
+                PM.ProcessModuleType AS DomainType,
+                PM.ProcessName,
+                RM.MachineID,
+                MM.MachineName,
                 IM.ItemID,
-                IM.ItemCode,
-                IM.ItemName,
-                IM.ItemGroupID,
+                IGM.ItemGroupID,
+                ISG.ItemSubGroupID,
+                IGM.ItemGroupNameID,
                 IGM.ItemGroupName,
-                IM.ItemSubGroupID,
-                ISGM.ItemSubGroupName,
-                ISNULL(IM.EstimationRate, 0) AS EstimationRate,
+                ISG.ItemSubGroupName,
+                IM.ItemName,
+                ISNULL(IM.SizeL, 0) AS SizeL,
+                ISNULL(IM.SizeW, 0) AS SizeW,
+                ISNULL(IM.SizeH, 0) AS SizeH,
+                ISNULL(IM.Thickness, 0) AS Thickness,
+                ISNULL(IM.Density, 0) AS Density,
+                ISNULL(IM.GSM, 0) AS GSM,
+                ISNULL(IM.ReleaseGSM, 0) AS ReleaseGSM,
+                ISNULL(IM.AdhesiveGSM, 0) AS AdhesiveGSM,
+                IM.StockUnit,
+                IM.PurchaseUnit,
                 IM.EstimationUnit,
-                IM.StockUnit
-            FROM ProcessMaterialAllocation AS PMA
-            INNER JOIN ItemMaster AS IM ON IM.ItemID = PMA.ItemID
+                ISNULL(IM.PurchaseRate, 0) AS PurchaseRate,
+                ISNULL(IM.EstimationRate, 0) AS EstimationRate
+            FROM ProcessMaster AS PM
+            INNER JOIN ProcessAllocatedMaterialMaster AS PAM ON PAM.ProcessID = PM.ProcessID
+            INNER JOIN RankedMachines AS RM ON RM.ProcessID = PAM.ProcessID AND RM.rn = 1
+            INNER JOIN MachineMaster AS MM ON MM.MachineID = RM.MachineID
+            INNER JOIN ItemMaster AS IM ON IM.ItemID = PAM.ItemID
             INNER JOIN ItemGroupMaster AS IGM ON IGM.ItemGroupID = IM.ItemGroupID
-            LEFT JOIN ItemSubGroupMaster AS ISGM ON ISGM.ItemSubGroupID = IM.ItemSubGroupID
-            WHERE PMA.ProcessID IN ({processIds})
-              AND PMA.CompanyID = @CompanyID
-              AND ISNULL(PMA.IsDeletedTransaction, 0) = 0
-              AND ISNULL(IM.IsDeletedTransaction, 0) = 0
-              AND ISNULL(IM.ISItemActive, 1) <> 0
-            ORDER BY IM.ItemName";
+            INNER JOIN ItemSubGroupMaster AS ISG ON ISG.ItemSubGroupID = IM.ItemSubGroupID
+            WHERE PM.ProcessID IN ({processIds})";
 
-        var results = await connection.QueryAsync<ProcessMaterialDto>(query, new { CompanyID = companyId });
+        var results = await connection.QueryAsync<ProcessMaterialDto>(query);
         return results.ToList();
     }
     public async Task<DieToolDto?> GetToolByIdAsync(long toolId)

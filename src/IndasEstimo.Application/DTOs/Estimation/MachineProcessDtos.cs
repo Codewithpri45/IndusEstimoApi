@@ -55,15 +55,53 @@ public class OperationDto
 {
     public long ProcessID { get; set; }
     public string ProcessName { get; set; } = string.Empty;
+    public string? PrePress { get; set; }
     public string? TypeofCharges { get; set; }
+    public string? SizeToBeConsidered { get; set; }
     public decimal Rate { get; set; }
     public decimal MinimumCharges { get; set; }
     public decimal SetupCharges { get; set; }
+    public string? IsDisplay { get; set; }
     public bool IsOnlineProcess { get; set; }
-    public int SequenceNo { get; set; }
+    public string? ChargeApplyOnSheets { get; set; }
+    public string? DisplayProcessName { get; set; }
+    public decimal Amount { get; set; }
+    public string? RateFactor { get; set; }
+    public string? AddRow { get; set; }
+    public decimal MakeReadyTime { get; set; }
+    public long MachineID { get; set; }
+    public decimal MachineSpeed { get; set; }
+    public decimal JobChangeOverTime { get; set; }
+    public decimal MakeReadyPerHourCost { get; set; }
+    public decimal MachinePerHourCost { get; set; }
+    public int ToolRequired { get; set; }
+    public string ProcessProductionType { get; set; } = "None";
+    public int PaperConsumptionRequired { get; set; }
+    public string MachineName { get; set; } = string.Empty;
     public long? DepartmentID { get; set; }
-    public decimal WastagePercentage { get; set; }
+    public int SequenceNo { get; set; }
     public decimal FlatWastage { get; set; }
+    public decimal WastagePercentage { get; set; }
+    public string ProcessModuleType { get; set; } = "Universal";
+    public decimal RollChangeOverTime { get; set; }
+    public decimal ExecutionTime { get; set; }
+    public decimal TotalExecutionTime { get; set; }
+    public decimal MakeReadyMachineCost { get; set; }
+    public decimal ExecutionCost { get; set; }
+    public decimal MachineCost { get; set; }
+    public decimal MaterialCost { get; set; }
+    public int Pieces { get; set; } = 1;
+    public int NoOfStitch { get; set; } = 1;
+    public int NoOfLoops { get; set; } = 1;
+    public int NoOfColors { get; set; } = 1;
+    public int PagesPerSection { get; set; } = 1;
+    public decimal NoOfForms { get; set; }
+    public int PlateRequired { get; set; }
+    public int NoOfFolds { get; set; } = 1;
+    public string? PerHourCostingParameter { get; set; }
+    public decimal MinimumQuantityToBeCharged { get; set; }
+    public decimal PerHourCalculationQuantity { get; set; }
+    public decimal AdditionalWeight { get; set; }
 }
 
 /// <summary>
@@ -84,13 +122,30 @@ public class OperationSlabDto
 /// </summary>
 public class MachineItemDto
 {
+    public long MachineID { get; set; }
+    public long ItemGroupID { get; set; }
+    public int? ItemGroupNameID { get; set; }
+    public long? ItemSubGroupID { get; set; }
+    public string? ItemGroupName { get; set; }
+    public string? ItemSubGroupName { get; set; }
     public long ItemID { get; set; }
     public string ItemCode { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
-    public long? ItemGroupID { get; set; }
-    public string? ItemGroupName { get; set; }
-    public decimal EstimationRate { get; set; }
+    public decimal SizeL { get; set; }
+    public decimal SizeW { get; set; }
+    public decimal SizeH { get; set; }
+    public decimal Thickness { get; set; }
+    public decimal Density { get; set; }
+    public decimal GSM { get; set; }
+    public decimal Caliper { get; set; }
+    public decimal ReleaseGSM { get; set; }
+    public decimal AdhesiveGSM { get; set; }
+    public string? StockUnit { get; set; }
     public string? EstimationUnit { get; set; }
+    public decimal PhysicalStock { get; set; }
+    public decimal EstimationRate { get; set; }
+    public string? PurchaseUnit { get; set; }
+    public decimal PurchaseRate { get; set; }
 }
 
 /// <summary>

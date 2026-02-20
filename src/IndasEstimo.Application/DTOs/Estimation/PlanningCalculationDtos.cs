@@ -34,13 +34,36 @@ public class CalculateOperationRequest
     public string? GblOperId_str => GblOperId; // convenience accessor
 
     // Legacy / standard fields
-    public decimal Quantity { get; set; }
-    public int Ups { get; set; }
-    public int NoOfPass { get; set; }
-    public int NoOfColors { get; set; }
-    public decimal SizeL { get; set; }
-    public decimal SizeW { get; set; }
+    public decimal Quantity { get; set; }        // Final_Quantity (sheets/running meters)
+    public long QuantityPcs { get; set; }        // Final_Quantity_Pcs (pieces)
+    public int Ups { get; set; }                  // Total_Ups
+    public int NoOfPass { get; set; }             // NoOfPass
+    public int NoOfColors { get; set; }           // Total_Colors
+    public decimal SizeL { get; set; }            // Size_L (machine sheet size)
+    public decimal SizeW { get; set; }            // Size_W
     public string? RateFactor { get; set; }
+    
+    // Additional legacy fields for charge type formulas
+    public decimal TotalPaperKG { get; set; }     // Total_Paper_KG
+    public int Sets { get; set; } = 1;            // Sets (forms/sections)
+    public decimal PubSheets { get; set; }        // Pub_Sheets (total sheets after wastage)
+    public decimal JobL { get; set; }             // Job_L (job label length)
+    public decimal JobH { get; set; }             // Job_H (job label height)
+    public decimal JobW { get; set; }             // Job_W (job label width)
+    public long TotalPlates { get; set; }         // Total_Plates
+    public int PagesPerSection { get; set; } = 1; // PagesPerSection
+    public decimal NoOfForms { get; set; }        // NoOfForms
+    public long OrderQuantity { get; set; }       // Order_Quantity
+    public long JobPages { get; set; }            // Gbl_Job_Pages
+    public long JobLeaves { get; set; }           // Gbl_Job_Leaves
+    public decimal BookSpine { get; set; }        // Gbl_Book_Spine
+    public decimal PaperGSM { get; set; }         // Gbl_Paper_GSM
+    public int FrontColors { get; set; }          // Gbl_Front_Color
+    public int UpsL { get; set; }                 // Gbl_UPS_L
+    public int UpsH { get; set; }                 // Gbl_UPS_H
+    public int Stitch { get; set; } = 1;          // Stitch count
+    public int Folds { get; set; }                // Folds count
+    public string? ContentSizeInputUnit { get; set; } // MM/INCH/CM
 }
 
 /// <summary>
@@ -51,6 +74,7 @@ public class CalculateOperationResponse
     public decimal Rate { get; set; }
     public decimal Amount { get; set; }
     public decimal MinimumCharges { get; set; }
+    public decimal SetupCharges { get; set; }
     public string TypeOfCharges { get; set; } = string.Empty;
 }
 

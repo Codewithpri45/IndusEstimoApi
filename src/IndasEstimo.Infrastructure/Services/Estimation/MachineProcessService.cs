@@ -55,7 +55,7 @@ public class MachineProcessService : IMachineProcessService
         }
     }
 
-    public async Task<Result<List<OperationDto>>> GetDefaultOperationsAsync(string domainType)
+    public async Task<Result<List<OperationDto>>> GetDefaultOperationsAsync(string domainType, int? categoryId = null)
     {
         try
         {
@@ -64,7 +64,7 @@ public class MachineProcessService : IMachineProcessService
                 return Result<List<OperationDto>>.Failure("Domain type is required");
             }
 
-            var data = await _repository.GetDefaultOperationsAsync(domainType);
+            var data = await _repository.GetDefaultOperationsAsync(domainType, categoryId);
             return Result<List<OperationDto>>.Success(data);
         }
         catch (Exception ex)

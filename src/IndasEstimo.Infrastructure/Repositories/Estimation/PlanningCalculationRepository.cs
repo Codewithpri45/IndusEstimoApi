@@ -97,13 +97,154 @@ public class PlanningCalculationRepository : IPlanningCalculationRepository
             }
         }
 
-        // Calculate amount based on charge type
+        // Helper: RoundUp equivalent of VB's Math.Ceiling for division
+        static decimal RoundUp(decimal value, int decimals)
+        {
+            if (decimals == 0)
+                return Math.Ceiling(value);
+            decimal multiplier = (decimal)Math.Pow(10, decimals);
+            return Math.Ceiling(value * multiplier) / multiplier;
+        }
+
+        // Derive pages from legacy logic
+        long pages = request.JobLeaves > 0 ? request.JobLeaves * 2 :
+                     request.JobPages > 0 ? request.JobPages : 1;
+
+        int stitch = request.Stitch > 0 ? request.Stitch : 1;
+        int folds = request.Folds;
+        if (folds == 0)
+        {
+            // Legacy derives folds from Ups
+            folds = request.Ups switch
+            {
+                4 => 2, 8 => 3, 12 or 16 => 4, 32 => 5, 64 => 6, _ => 0
+            };
+        }
+
+        long orderQty = request.OrderQuantity > 0 ? request.OrderQuantity : 
+                        (request.Gbl_Order_Quantity.HasValue ? (long)request.Gbl_Order_Quantity.Value : 0);
+        
+        int noOfPass = request.NoOfPass;
+        if (processInfo.TypeOfCharges == "Rate/Total KgOfJob/PerBoxWt" && noOfPass <= 1)
+            noOfPass = 15;
+
+        decimal pubSheets = request.PubSheets;
+        decimal totalPaperKG = request.TotalPaperKG;
+        int totalColors = request.NoOfColors;
+        decimal sizeL = request.SizeL;
+        decimal sizeW = request.SizeW;
+        int totalUps = request.Ups;
+        int sets = request.Sets > 0 ? request.Sets : 1;
+        decimal jobL = request.JobL;
+        decimal jobH = request.JobH;
+        decimal jobW = request.JobW;
+        long totalPlates = request.TotalPlates;
+        decimal quantity = request.Quantity;
+        long quantityPcs = request.QuantityPcs;
+        int pagesPerSection = request.PagesPerSection > 0 ? request.PagesPerSection : 1;
+        decimal noOfForms = request.NoOfForms;
+        int frontColors = request.FrontColors;
+
+        // Calculate amount based on charge type — ALL 60+ legacy formulas (Api_shiring_service.vb line 13078-13307)
         decimal amount = processInfo.TypeOfCharges switch
         {
-            "Per Piece" => request.Quantity * processInfo.Rate,
-            "Per 1000" => (request.Quantity / 1000) * processInfo.Rate,
-            "Per Sqm" => (request.SizeL * request.SizeW * request.Quantity / 1000000) * processInfo.Rate,
-            _ => request.Quantity * processInfo.Rate
+            "Rate/Kg" => (totalPaperKG * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Total KgOfJob" => (totalPaperKG * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Total KgOfJob/PerBoxWt" => (Math.Round(totalPaperKG / noOfPass) * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Color" => (totalColors * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Color" => (totalColors * sizeL * sizeW * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Unit" => (sizeL * sizeW * processInfo.Rate * quantity) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Sheet" => (sizeL * sizeW * processInfo.Rate * pubSheets) + processInfo.SetupCharges,
+            "Rate/Sq.Inch" => (sizeL * sizeW * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Sq.Cm" => (sizeL * sizeW * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Sq.Cm/Unit" => (sizeL * sizeW * processInfo.Rate * quantity) + processInfo.SetupCharges,
+            "Rate/Sq.Cm/Ups" => (sizeL * sizeW * processInfo.Rate * totalUps) + processInfo.SetupCharges,
+            "Rate/100 Sq.Cm/Sheet" => ((sizeL * sizeW) * pubSheets * (processInfo.Rate / 100)) + processInfo.SetupCharges,
+            "Rate/100 Sq.Cm/Order Quantity" => ((sizeL * sizeW) * orderQty * (processInfo.Rate / 100)) + processInfo.SetupCharges,
+            "Rate/100 Sq.Cm/Sheet Both Side" => ((sizeL * sizeW) * pubSheets * (processInfo.Rate / 100) * 2) + processInfo.SetupCharges,
+            "Rate/Sq.Cm/Sheet" => (sizeL * sizeW * processInfo.Rate * pubSheets) + processInfo.SetupCharges,
+            "Rate/100 Sq.Inch/Sheet" => ((sizeL * sizeW) * pubSheets * (processInfo.Rate / 100)) + processInfo.SetupCharges,
+            "Rate/100 Sq.Inch/Sheet-1" => (processInfo.Rate > 0 ? (((sizeL * sizeW) / 100) / processInfo.Rate) * pubSheets : 0) + processInfo.SetupCharges,
+            "Rate/100 Sq.Inch/Order Quantity-1" => (processInfo.Rate > 0 ? (((sizeL * sizeW) / 100) / processInfo.Rate) * pubSheets : 0) + processInfo.SetupCharges,
+            "Rate/100 Sq.Inch/Sheet Both Side" => ((sizeL * sizeW) * pubSheets * (processInfo.Rate / 100) * 2) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Sheet Both Side" => ((sizeL * sizeW) * 2 * processInfo.Rate * pubSheets) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Sheet Both Side/Pass" => ((sizeL * sizeW) * 2 * processInfo.Rate * pubSheets * noOfPass) + processInfo.SetupCharges,
+            "Rate/Unit" => (quantityPcs * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/1000 Units" => (RoundUp(quantity / 1000, 0) * 1000 * (processInfo.Rate / 1000)) + processInfo.SetupCharges,
+            "Rate/Sheet" => (pubSheets * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/1000 Sheets" => (RoundUp(pubSheets / 1000, 0) * 1000 * (processInfo.Rate / 1000)) + processInfo.SetupCharges,
+            "Rate/1000 Sheets Both Side" => (RoundUp(pubSheets / 1000, 0) * 1000 * (processInfo.Rate / 1000) * 2) + processInfo.SetupCharges,
+            "Rate/Ups" => (totalUps * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Ups/Sheet" => (totalUps * pubSheets * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/(L+W+H)/Ups" => (totalUps * (jobL + jobW + jobH) * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Page" => (pages * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Job" => (1 * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Set" => (sets * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Plate" => (totalPlates * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Total Cuts/1000 Sheets" => ((request.UpsL + request.UpsH) * (processInfo.Rate / 1000) * RoundUp(pubSheets / 1000, 0) * 1000) + processInfo.SetupCharges,
+            "Rate/Cut/Sheets" => ((request.UpsL + request.UpsH) * processInfo.Rate * RoundUp(pubSheets / 1000, 0) * 1000) + processInfo.SetupCharges,
+            "Rate/Set/1000 Sheets" => (sets * (processInfo.Rate / 1000) * RoundUp(pubSheets / 1000, 0) * 1000) + processInfo.SetupCharges,
+            "Rate/Page/Unit" => (pages * quantity * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Set/Unit" => (sets * quantity * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Total Cuts/Sheet" => ((request.UpsL + request.UpsH) * processInfo.Rate * RoundUp(pubSheets / 1000, 0) * 1000) + processInfo.SetupCharges,
+            "Rate/Order Quantity" => (orderQty * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/1000 Order Quantity" => (orderQty * (processInfo.Rate / 1000)) + processInfo.SetupCharges,
+            "Rate/Page/Order Quantity" => (pages * orderQty * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Set/Order Quantity" => (sets * orderQty * processInfo.Rate) + processInfo.SetupCharges,
+            "Rate/Inch/Unit" => ((jobL / 25.4m) * processInfo.Rate * quantity) + processInfo.SetupCharges,
+            "Rate/Inch/Order Quantity" => ((jobL / 25.4m) * processInfo.Rate * orderQty) + processInfo.SetupCharges,
+            "Rate/Loop/Unit" => (stitch * processInfo.Rate * quantity) + processInfo.SetupCharges,
+            "Rate/Loop/Order Quantity" => (stitch * processInfo.Rate * orderQty) + processInfo.SetupCharges,
+            "Rate/Color/1000 Sheets" => (totalColors * (processInfo.Rate / 1000) * RoundUp(pubSheets / 1000, 0) * 1000) + processInfo.SetupCharges,
+            "Rate/Color/1000 Sheets Both Side" => (totalColors * (processInfo.Rate / 1000) * RoundUp(pubSheets / 1000, 0) * 1000 * 2) + processInfo.SetupCharges,
+            "Rate/Ups/1000 Sheets" => (totalUps * RoundUp(pubSheets / 1000, 0) * 1000 * (processInfo.Rate / 1000)) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Set" => ((sizeL * sizeW) * processInfo.Rate * sets) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Order Quantity" => (sizeL * sizeW * processInfo.Rate * orderQty) + processInfo.SetupCharges,
+            "Rate/Color/Order Quantity" => (totalColors * processInfo.Rate * orderQty) + processInfo.SetupCharges,
+            "Rate/Color/1000 Order Quantity" => (totalColors * (processInfo.Rate / 1000) * orderQty) + processInfo.SetupCharges,
+            "Rate/Stitch/Unit" => (stitch * processInfo.Rate * quantity) + processInfo.SetupCharges,
+            "Rate/Stitch/Order Quantity" => (stitch * processInfo.Rate * orderQty) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Color/Set" => (processInfo.Rate * (sizeL * sizeW) * frontColors * sets) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Color/Set/Order Quantity" => (processInfo.Rate * (sizeL * sizeW) * frontColors * sets * orderQty) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Color/Set/Unit" => (processInfo.Rate * (sizeL * sizeW) * frontColors * sets * quantity) + processInfo.SetupCharges,
+            "Rate/Sq.Mtr/Sheet" => (processInfo.Rate * (sizeL * sizeW) * pubSheets) + processInfo.SetupCharges,
+            "Rate/Meter" => (processInfo.Rate * pubSheets) + processInfo.SetupCharges,
+            "Rate/Sq.Mtr/Unit" => (processInfo.Rate * (sizeL * sizeW) * quantity) + processInfo.SetupCharges,
+            "Rate/Sq.Mtr/Order Quantity" => CalculateSqMeterOrderQty(processInfo.Rate, jobH, jobL, orderQty, processInfo.SetupCharges, request.ContentSizeInputUnit),
+            "Rate/Fold/Form/Unit" => (folds > 0 
+                ? (processInfo.Rate * (folds * RoundUp(sets / 2m, 0)) * quantity)
+                : (processInfo.Rate * (Math.Round((decimal)totalUps / 2) * RoundUp(sets / 2m, 0)) * quantity)) + processInfo.SetupCharges,
+            "Rate/Fold/Form/Order Quantity" => (folds > 0 
+                ? (processInfo.Rate * (folds * RoundUp(sets / 2m, 0)) * orderQty)
+                : (processInfo.Rate * (Math.Round((decimal)totalUps / 2) * RoundUp(sets / 2m, 0)) * orderQty)) + processInfo.SetupCharges,
+            "Rate/Fold/Unit" => (folds > 0 
+                ? (processInfo.Rate * folds * quantity)
+                : (processInfo.Rate * Math.Round((decimal)totalUps / 2) * quantity)) + processInfo.SetupCharges,
+            "Rate/Fold/Sheet" => (folds > 0 
+                ? (processInfo.Rate * folds * pubSheets)
+                : (processInfo.Rate * Math.Round((decimal)totalUps / 2) * pubSheets)) + processInfo.SetupCharges,
+            "Rate/Fold/Order Quantity" => (folds > 0 
+                ? (processInfo.Rate * folds * orderQty)
+                : (processInfo.Rate * Math.Round((decimal)totalUps / 2) * orderQty)) + processInfo.SetupCharges,
+            "Rate/SqureCM(Height*Spine)/Order Quantity" => CalculateSpineFormula(processInfo.Rate, jobH, request.BookSpine, pages, request.PaperGSM, orderQty, processInfo.SetupCharges),
+            "Rate/Sq.Meter" => (processInfo.Rate * pubSheets) + processInfo.SetupCharges,
+            "Rate/Sq.Meter/Coverage Percentage" => (processInfo.Rate * pubSheets) + processInfo.SetupCharges,
+            "Rate/Sq.Meter/GSM/Coverage Percentage" => (processInfo.Rate * (pubSheets * 3 / 1000)) + processInfo.SetupCharges,
+            "Rate/Section/1000 Order Quantity" => (Math.Round((decimal)pages / pagesPerSection, 2) * (processInfo.Rate / 1000) * orderQty) + processInfo.SetupCharges,
+            "Rate/Form/Order Quantity" => (processInfo.Rate * noOfForms * orderQty) + processInfo.SetupCharges,
+            "Rate/Zipper Running Meter" => (processInfo.Rate * pubSheets) + processInfo.SetupCharges,
+            "Rate/Sq.Inch/Ply/Sheet" => (sizeL * sizeW * processInfo.Rate * pubSheets) + processInfo.SetupCharges,
+            "Rate/Box" => sizeL > 0 ? (processInfo.Rate * sizeL) + processInfo.SetupCharges : 0,
+            "Rate/Box/Quantity" => sizeL > 0 
+                ? (processInfo.Rate * Math.Round((decimal)orderQty / sizeL)) + processInfo.SetupCharges 
+                : (processInfo.Rate * 1) + processInfo.SetupCharges,
+            "Rate/Packing Box Wt(Kg)" => (sizeL > 0 && totalPaperKG > 0) 
+                ? (Math.Round(totalPaperKG / sizeL) * processInfo.Rate) + processInfo.SetupCharges : 0,
+            // Legacy aliases
+            "Per Piece" => (quantity * processInfo.Rate) + processInfo.SetupCharges,
+            "Per 1000" => ((quantity / 1000) * processInfo.Rate) + processInfo.SetupCharges,
+            "Per Sqm" => ((sizeL * sizeW * quantity / 1000000) * processInfo.Rate) + processInfo.SetupCharges,
+            _ => (quantity * processInfo.Rate) + processInfo.SetupCharges
         };
 
         // Apply minimum charges if applicable
@@ -114,6 +255,30 @@ public class PlanningCalculationRepository : IPlanningCalculationRepository
 
         processInfo.Amount = Math.Round(amount, 2);
         return processInfo;
+    }
+
+    /// <summary>
+    /// Helper for Rate/Sq.Mtr/Order Quantity — handles unit conversion (MM/INCH/CM)
+    /// </summary>
+    private static decimal CalculateSqMeterOrderQty(decimal rate, decimal jobH, decimal jobL, long orderQty, decimal setupCharges, string? contentSizeInputUnit)
+    {
+        string unit = string.IsNullOrWhiteSpace(contentSizeInputUnit) ? "MM" : contentSizeInputUnit.Trim().ToUpper();
+        decimal h = jobH, l = jobL;
+        
+        if (unit == "INCH") { h = Math.Round(h * 0.0254m, 2); l = Math.Round(l * 0.0254m, 2); }
+        else if (unit == "MM") { h = Math.Round(h / 1000m, 2); l = Math.Round(l / 1000m, 2); }
+        else if (unit == "CM") { h = Math.Round(h / 100m, 2); l = Math.Round(l / 100m, 2); }
+        
+        return (rate * h * l * orderQty) + setupCharges;
+    }
+
+    /// <summary>
+    /// Helper for Rate/SqureCM(Height*Spine)/Order Quantity
+    /// </summary>
+    private static decimal CalculateSpineFormula(decimal rate, decimal jobH, decimal bookSpine, long pages, decimal paperGSM, long orderQty, decimal setupCharges)
+    {
+        decimal spine = bookSpine > 0 ? bookSpine : (pages * paperGSM / 2000m);
+        return (rate * ((jobH / 10m) * (spine / 10m)) * orderQty) + setupCharges;
     }
 
     public async Task<List<ChargeTypeDto>> GetChargeTypesAsync()
