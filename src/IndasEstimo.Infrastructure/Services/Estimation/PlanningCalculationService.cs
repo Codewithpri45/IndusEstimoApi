@@ -31,6 +31,34 @@ public class PlanningCalculationService : IPlanningCalculationService
                 return Result<CalculateOperationResponse>.Failure("Request is required");
             }
 
+            // When isDefault=true, bypass ProcessID check and return default operations
+            // Frontend sends isDefault=true to load operations for a category without specific process selection
+            if (request.IsDefault)
+            {
+                _logger.LogInformation("[CalculateOperation] isDefault=true, loading default operations for category: {Category}, content: {Content}", 
+                    request.Category, request.Content);
+                
+                // Return success with empty/default response - process data will be pre-loaded by LoadOperations
+                return Result<CalculateOperationResponse>.Success(new CalculateOperationResponse
+                {
+                    Rate = 0,
+                    Amount = 0,
+                    MinimumCharges = 0,
+                    TypeOfCharges = "default"
+                });
+            }
+
+            // Resolve ProcessID: use GblOperId if ProcessID not set
+            if (request.ProcessID <= 0 && !string.IsNullOrEmpty(request.GblOperId))
+            {
+                // Parse first ID from comma-separated GblOperId
+                var firstId = request.GblOperId.Split(',').FirstOrDefault(s => !string.IsNullOrEmpty(s.Trim()));
+                if (long.TryParse(firstId?.Trim(), out long parsedId) && parsedId > 0)
+                {
+                    request.ProcessID = parsedId;
+                }
+            }
+
             if (request.ProcessID <= 0)
             {
                 return Result<CalculateOperationResponse>.Failure("Valid process ID is required");

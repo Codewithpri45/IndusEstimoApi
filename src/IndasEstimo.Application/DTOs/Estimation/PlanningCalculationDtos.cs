@@ -5,7 +5,35 @@ namespace IndasEstimo.Application.DTOs.Estimation;
 /// </summary>
 public class CalculateOperationRequest
 {
+    // Primary process ID (used when calculating specific operation cost)
     public long ProcessID { get; set; }
+    
+    // Comma-separated operation IDs (used when multiple processes selected, or sent as GblOperId from frontend)
+    public string? GblOperId { get; set; }
+    
+    // When true, load default operations for the given category/content (no ProcessID required)
+    public bool IsDefault { get; set; } = false;
+    public bool isDefault { get => IsDefault; set => IsDefault = value; } // alias for frontend compatibility
+    
+    // Category context for default operations
+    public string? Category { get; set; }
+    public string? category { get => Category; set => Category = value; } // alias
+    public string? Content { get; set; }
+    public string? content { get => Content; set => Content = value; } // alias
+    public string? Gbl_Content_Domain_Type { get; set; }
+
+    // Job dimensions
+    public decimal? Gbl_Job_L { get; set; }
+    public decimal? Gbl_Job_H { get; set; }
+    public decimal? Gbl_Job_W { get; set; }
+    public decimal? Gbl_Order_Quantity { get; set; }
+    
+    // Machine info
+    public decimal? Make_Ready_Time { get; set; }
+    public decimal? Job_Change_Over_Time { get; set; }
+    public string? GblOperId_str => GblOperId; // convenience accessor
+
+    // Legacy / standard fields
     public decimal Quantity { get; set; }
     public int Ups { get; set; }
     public int NoOfPass { get; set; }

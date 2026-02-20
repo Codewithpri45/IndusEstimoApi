@@ -148,11 +148,14 @@ builder.Services.AddScoped<IProcessMasterRepository, ProcessMasterRepository>();
 builder.Services.AddScoped<IProcessMasterService, ProcessMasterService>();
 builder.Services.AddScoped<IProductHSNMasterRepository, ProductHSNMasterRepository>();
 builder.Services.AddScoped<IProductHSNMasterService, ProductHSNMasterService>();
-//Repository registration
+builder.Services.AddScoped<IMaterialGroupMasterRepository, MaterialGroupMasterRepository>();
+builder.Services.AddScoped<IMaterialGroupMasterService, MaterialGroupMasterService>();
 builder.Services.AddScoped<IDepartmentMasterRepository, DepartmentMasterRepository>();
-
-//Service registration:
 builder.Services.AddScoped<IDepartmentMasterService, DepartmentMasterService>();
+builder.Services.AddScoped<IUnitMasterRepository, UnitMasterRepository>();
+builder.Services.AddScoped<IUnitMasterService, UnitMasterService>();
+builder.Services.AddScoped<IProductGroupMasterRepository, ProductGroupMasterRepository>();
+builder.Services.AddScoped<IProductGroupMasterService, ProductGroupMasterService>();
 
 
 // ===== Security Services =====

@@ -204,10 +204,7 @@ public class LedgerMasterRepository : ILedgerMasterRepository
                 NULLIF(ControllValidation,'') as ControllValidation,
                 NULLIF(FieldFormulaString,'') as FieldFormulaString,
                 NULLIF(IsRequiredFieldValidator,'') as IsRequiredFieldValidator,
-                NULLIF(UnitMeasurement,'') as UnitMeasurement,
-                IsLocked,
-                ISNULL(MinimumValue, 0) AS MinimumValue,
-                ISNULL(MaximumValue, 0) AS MaximumValue
+                IsLocked
             FROM LedgerGroupFieldMaster
             WHERE LedgerGroupID = @MasterID
             AND ISNULL(IsDeletedTransaction, 0) <> 1

@@ -682,22 +682,24 @@ public class FlexoCalculationService : IFlexoCalculationService
         }
 
         // 5. Machine Run Cost
+        // 5. Machine Run Cost
+        // FIX: Always calculate time for display (UI grid requires Total Time)
+        double speedPerMin = (double)machine.Speed > 0 ? (double)machine.Speed : 30;
+        double runMetricsMinutes = totalMeters / speedPerMin;
+        double fixedTimeMinutes = (double)machine.MakeReadyTime + (double)machine.JobChangeOverTime;
+        double rollChangeTimeMinutes = numRollChanges * (double)machine.RollChangeOverTime;
+
+        double totalTimeMinutes = runMetricsMinutes + fixedTimeMinutes + rollChangeTimeMinutes;
+        double totalTimeHours = totalTimeMinutes / 60;
+        
+        plan.TotalExecutionTime = Math.Round(totalTimeMinutes, 2);
+
         if (ratePerRun > 0)
         {
              plan.MachineRunCostTotal = (double)ratePerRun;
         }
         else
         {
-             double speedPerMin = (double)machine.Speed > 0 ? (double)machine.Speed : 30; 
-             
-             double runMetricsMinutes = totalMeters / speedPerMin;
-             double fixedTimeMinutes = (double)machine.MakeReadyTime + (double)machine.JobChangeOverTime;
-
-             double rollChangeTimeMinutes = numRollChanges * (double)machine.RollChangeOverTime;
-
-             double totalTimeMinutes = runMetricsMinutes + fixedTimeMinutes + rollChangeTimeMinutes;
-             double totalTimeHours = totalTimeMinutes / 60;
-
              plan.MachineRunCostTotal = totalTimeHours * (double)machine.PerHourRate;
         }
 

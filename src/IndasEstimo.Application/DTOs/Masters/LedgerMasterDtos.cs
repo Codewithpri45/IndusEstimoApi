@@ -170,10 +170,7 @@ public class LedgerMasterFieldDto
     public string ControllValidation { get; set; } = "";
     public string FieldFormulaString { get; set; } = "";
     public string IsRequiredFieldValidator { get; set; } = "";
-    public string UnitMeasurement { get; set; } = "";
     public bool IsLocked { get; set; }
-    public decimal MinimumValue { get; set; }
-    public decimal MaximumValue { get; set; }
 }
 
 /// <summary>

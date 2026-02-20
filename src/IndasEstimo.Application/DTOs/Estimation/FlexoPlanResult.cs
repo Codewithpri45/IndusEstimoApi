@@ -59,6 +59,7 @@ public class FlexoPlanResult
     
     public double MachineRunCostTotal { get; set; }
     public double MachineRunCostPer1000 { get; set; }
+    public double TotalExecutionTime { get; set; } // Total Time in Minutes
     
     public double PlateCostTotal { get; set; }
     public double PlateCostPer1000 { get; set; }
