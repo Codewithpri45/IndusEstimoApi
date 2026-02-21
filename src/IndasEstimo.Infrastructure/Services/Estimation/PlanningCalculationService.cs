@@ -64,9 +64,11 @@ public class PlanningCalculationService : IPlanningCalculationService
                 return Result<CalculateOperationResponse>.Failure("Valid process ID is required");
             }
 
-            if (request.Quantity <= 0)
+            // Quantity can be 0 when frontend is loading process rates before quantity is known
+            // The repository will still return Rate, MinimumCharges, TypeOfCharges
+            if (request.Quantity < 0)
             {
-                return Result<CalculateOperationResponse>.Failure("Valid quantity is required");
+                request.Quantity = 0;
             }
 
             var data = await _repository.CalculateOperationAsync(request);
