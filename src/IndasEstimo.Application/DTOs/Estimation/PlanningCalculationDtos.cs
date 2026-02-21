@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace IndasEstimo.Application.DTOs.Estimation;
 
 /// <summary>
@@ -12,14 +14,14 @@ public class CalculateOperationRequest
     public string? GblOperId { get; set; }
     
     // When true, load default operations for the given category/content (no ProcessID required)
+    [JsonPropertyName("isDefault")]
     public bool IsDefault { get; set; } = false;
-    public bool isDefault { get => IsDefault; set => IsDefault = value; } // alias for frontend compatibility
     
     // Category context for default operations
+    [JsonPropertyName("category")]
     public string? Category { get; set; }
-    public string? category { get => Category; set => Category = value; } // alias
+    [JsonPropertyName("content")]
     public string? Content { get; set; }
-    public string? content { get => Content; set => Content = value; } // alias
     public string? Gbl_Content_Domain_Type { get; set; }
 
     // Job dimensions
