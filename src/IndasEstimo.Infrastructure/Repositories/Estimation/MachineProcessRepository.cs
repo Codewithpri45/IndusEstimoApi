@@ -193,7 +193,7 @@ public class MachineProcessRepository : IMachineProcessRepository
               AND PM.CompanyID = @CompanyID
               AND CPA.CategoryID = @CategoryID
               AND ISNULL(NULLIF(PM.ProcessModuleType, ''), 'Universal') IN ('Universal', @DomainType)
-            ORDER BY DM.SequenceNo, PM.ProcessName";
+            ORDER BY SequenceNo, ProcessName";
 
         var results = await connection.QueryAsync<OperationDto>(query, 
             new { CompanyID = companyId, DomainType = domainType, CategoryID = categoryId ?? 0 });
@@ -265,7 +265,7 @@ public class MachineProcessRepository : IMachineProcessRepository
                 WHERE ISNULL(PM.IsDeletedTransaction, 0) = 0
                   AND PM.CompanyID = @CompanyID
                   AND ISNULL(NULLIF(PM.ProcessModuleType, ''), 'Universal') IN ('Universal', @DomainType)
-                ORDER BY DM.SequenceNo, PM.ProcessName";
+                ORDER BY SequenceNo, ProcessName";
 
             results = await connection.QueryAsync<OperationDto>(fallbackQuery, 
                 new { CompanyID = companyId, DomainType = domainType });
